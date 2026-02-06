@@ -33,7 +33,7 @@ unsigned char GlobalKeymap[128] = {
     /*  `       a       b       c       d       e       f       g        */
     nulcmd, svA, pgBack, curURL, hpgFore, nulcmd, hintL, vimiumG,
     /*  h       i       j       k       l       m       n       o        */
-    col1L, peekIMG, ldown1, lup1, col1R, msToggle, srchnxt, ldOpt,
+    col1L, peekIMG, lup1, ldown1, col1R, msToggle, srchnxt, ldOpt,
     /*  p       q       r       s       t       u       v       w        */
     peekURL, qquitfm, dispVer, selMn, nulcmd, hpgBack, vwSrc, movRW,
     /*  x       y       z       {       |       }       ~       DEL      */
