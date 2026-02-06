@@ -3753,6 +3753,94 @@ typedef struct {
 } HintItem;
 
 static const char hint_chars[] = "asdfghjkl";
+typedef enum {
+    HINT_ACT_FOLLOW = 0,
+    HINT_ACT_TAB = 1,
+    HINT_ACT_YANK = 2,
+} HintAction;
+
+static int
+cmd_in_path(const char *cmd)
+{
+    const char *path;
+    size_t cmdlen;
+    const char *p;
+
+    if (cmd == NULL || *cmd == '\0')
+	return 0;
+    path = getenv("PATH");
+    if (path == NULL || *path == '\0')
+	return 0;
+
+    cmdlen = strlen(cmd);
+    p = path;
+    while (*p) {
+	const char *colon = strchr(p, ':');
+	size_t dirlen = colon ? (size_t)(colon - p) : strlen(p);
+	size_t fullen;
+	char *full;
+
+	/* Empty PATH entry means current directory. */
+	if (dirlen == 0) {
+	    p = colon ? colon + 1 : p;
+	    if (access(cmd, X_OK) == 0)
+		return 1;
+	    if (!colon)
+		break;
+	    continue;
+	}
+
+	fullen = dirlen + 1 + cmdlen + 1;
+	full = New_N(char, (int)fullen);
+	memcpy(full, p, dirlen);
+	full[dirlen] = '/';
+	memcpy(full + dirlen + 1, cmd, cmdlen);
+	full[dirlen + 1 + cmdlen] = '\0';
+
+	if (access(full, X_OK) == 0)
+	    return 1;
+
+	if (!colon)
+	    break;
+	p = colon + 1;
+    }
+    return 0;
+}
+
+static int
+clipboard_write_cmd(const char *cmd, const char *text)
+{
+    FILE *fp;
+    int rc;
+
+    if (cmd == NULL || *cmd == '\0' || text == NULL)
+	return 0;
+    fp = popen(cmd, "w");
+    if (fp == NULL)
+	return 0;
+    fputs(text, fp);
+    fputc('\n', fp);
+    rc = pclose(fp);
+    return (rc == 0);
+}
+
+static int
+clipboard_write(const char *text)
+{
+    const char *cmd = getenv("W3M_CLIPBOARD_CMD");
+
+    if (cmd && *cmd)
+	return clipboard_write_cmd(cmd, text);
+
+    if (cmd_in_path("wl-copy"))
+	return clipboard_write_cmd("wl-copy", text);
+    if (cmd_in_path("xclip"))
+	return clipboard_write_cmd("xclip -selection clipboard", text);
+    if (cmd_in_path("xsel"))
+	return clipboard_write_cmd("xsel -ib", text);
+
+    return 0;
+}
 
 static int
 hint_label_len(int n)
@@ -3933,7 +4021,48 @@ count_hint_matches(const HintItem *items, int nitem, const char *prefix,
 }
 
 static void
-hint_follow(int open_in_tab)
+hint_act_on_point(const BufferPoint *pt, HintAction act)
+{
+    if (pt == NULL)
+	return;
+
+    gotoLine(Currentbuf, pt->line);
+    Currentbuf->pos = pt->pos;
+    arrangeCursor(Currentbuf);
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+
+    switch (act) {
+    case HINT_ACT_FOLLOW:
+	followA();
+	break;
+    case HINT_ACT_TAB:
+	tabA();
+	break;
+    case HINT_ACT_YANK:
+	{
+	    Anchor *a = retrieveAnchor(Currentbuf->href, pt->line, pt->pos);
+	    ParsedURL u;
+	    Str s;
+
+	    if (a == NULL)
+		a = retrieveAnchor(Currentbuf->formitem, pt->line, pt->pos);
+	    if (a == NULL || a->url == NULL) {
+		bell();
+		break;
+	    }
+	    parseURL2(a->url, &u, baseURL(Currentbuf));
+	    s = parsedURL2Str(&u);
+	    if (clipboard_write(s->ptr))
+		disp_message("Copied link URL to clipboard", TRUE);
+	    else
+		disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
+	}
+	break;
+    }
+}
+
+static void
+hint_mode(HintAction act)
 {
     HintItem *items;
     int nitem, label_len;
@@ -3953,23 +4082,18 @@ hint_follow(int open_in_tab)
 	int only = -1;
 	int nmatch;
 	int c;
+	const char *tag;
+
+	tag = (act == HINT_ACT_TAB) ? " (tab)" : (act == HINT_ACT_YANK) ? " (yank)" : "";
 
 	displayBuffer(Currentbuf, B_FORCE_REDRAW);
 	draw_hints(items, nitem, label_len, prefix);
-	message(Sprintf("Hint%s: %s", open_in_tab ? " (tab)" : "", prefix)->ptr,
-		0, 0);
+	message(Sprintf("Hint%s: %s", tag, prefix)->ptr, 0, 0);
 	refresh();
 
 	nmatch = count_hint_matches(items, nitem, prefix, &only);
 	if (nmatch == 1 && plen > 0) {
-	    gotoLine(Currentbuf, items[only].pt.line);
-	    Currentbuf->pos = items[only].pt.pos;
-	    arrangeCursor(Currentbuf);
-	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
-	    if (open_in_tab)
-		tabA();
-	    else
-		followA();
+	    hint_act_on_point(&items[only].pt, act);
 	    return;
 	}
 
@@ -3978,26 +4102,17 @@ hint_follow(int open_in_tab)
 	    break;
 	if (c == '\r' || c == '\n') {
 	    if (nmatch == 1) {
-		gotoLine(Currentbuf, items[only].pt.line);
-		Currentbuf->pos = items[only].pt.pos;
-		arrangeCursor(Currentbuf);
-		displayBuffer(Currentbuf, B_FORCE_REDRAW);
-		if (open_in_tab)
-		    tabA();
-		else
-		    followA();
+		hint_act_on_point(&items[only].pt, act);
 		return;
 	    }
 	    bell();
 	    continue;
 	}
 	if (c == '\b' || c == DEL_CODE) {
-	    if (plen > 0) {
+	    if (plen > 0)
 		prefix[--plen] = '\0';
-	    }
-	    else {
+	    else
 		bell();
-	    }
 	    continue;
 	}
 	if (IS_ALPHA(c)) {
@@ -4016,7 +4131,6 @@ hint_follow(int open_in_tab)
 	    }
 	    continue;
 	}
-
 	/* Ignore other keys in hint mode. */
     }
 
@@ -4025,12 +4139,60 @@ hint_follow(int open_in_tab)
 
 DEFUN(hintL, HINT_LINK, "Hint visible links and follow (Vimium-like)")
 {
-    hint_follow(FALSE);
+    hint_mode(HINT_ACT_FOLLOW);
 }
 
 DEFUN(hintTabL, HINT_TAB_LINK, "Hint visible links and open in a new tab (Vimium-like)")
 {
-    hint_follow(TRUE);
+    hint_mode(HINT_ACT_TAB);
+}
+
+static void
+yank_current_url(void)
+{
+    Str s;
+
+    if (Currentbuf == NULL)
+	return;
+    s = parsedURL2Str(&Currentbuf->currentURL);
+    if (clipboard_write(s->ptr))
+	disp_message("Copied page URL to clipboard", TRUE);
+    else
+	disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
+}
+
+DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg")
+{
+    int c;
+
+    c = getch();
+    if (c == ESC_CODE || c == CTRL_G || c == CTRL_C)
+	return;
+    if (c == 'g') {
+	goLineF();
+	return;
+    }
+    if (IS_ASCII(c))
+	pushEvent((int)GlobalKeymap[c], NULL);
+}
+
+DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf")
+{
+    int c;
+
+    c = getch();
+    if (c == ESC_CODE || c == CTRL_G || c == CTRL_C)
+	return;
+    if (c == 'y') {
+	yank_current_url();
+	return;
+    }
+    if (c == 'f') {
+	hint_mode(HINT_ACT_YANK);
+	return;
+    }
+    if (IS_ASCII(c))
+	pushEvent((int)GlobalKeymap[c], NULL);
 }
 
 /* go to the next anchor */

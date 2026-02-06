@@ -66,6 +66,8 @@ extern void lastA(void);
 extern void nthA(void);
 extern void hintL(void);
 extern void hintTabL(void);
+extern void vimiumG(void);
+extern void vimiumY(void);
 extern void onA(void);
 
 extern void nextA(void);
