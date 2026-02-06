@@ -36,7 +36,10 @@ ETC_DIR = $(sysconfdir)
 CONF_DIR = $(sysconfdir)/$(PACKAGE)
 
 WARNINGS= -Wall -Wnull-dereference
-CFLAGS = $(WARNINGS) -I. -I$(top_srcdir) @CFLAGS@ $(CPPFLAGS) $(DEFS) $(OPTS)
+# GCC 15+ may default to C23, where empty parameter lists mean "no args".
+# w3m/libwc relies on pre-C23 semantics in a few places, so default to GNU17
+# unless the user overrides via their own -std=... in CFLAGS.
+CFLAGS = $(WARNINGS) -I. -I$(top_srcdir) -std=gnu17 @CFLAGS@ $(CPPFLAGS) $(DEFS) $(OPTS)
 WCCFLAGS = @WCCFLAGS@
 CPPFLAGS = @CPPFLAGS@
 DEFS = @DEFS@ -DAUXBIN_DIR=\"$(AUXBIN_DIR)\" \
@@ -327,4 +330,3 @@ dist:
 
 bindist:
 	cd ..; tar cvfz w3m-$(VERSION)-$(MODEL).tar.gz w3m/w3m* w3m/doc* w3m/Bonus* w3m/README w3m/scripts 
-

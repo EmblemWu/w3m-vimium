@@ -23,7 +23,7 @@ unsigned char GlobalKeymap[128] = {
     /*  8       9       :       ;       <       =       >       ?        */
     nulcmd, nulcmd, chkURL, chkWORD, shiftl, pginfo, shiftr, srchbak,
     /*  @       A       B       C       D       E       F       G        */
-    readsh, nulcmd, backBf, nulcmd, ldDL, editBf, rFrame, goLineL,
+    readsh, nulcmd, backBf, nulcmd, ldDL, editBf, hintTabL, goLineL,
     /*  H       I       J       K       L       M       N       O        */
     ldhelp, followI, lup1, ldown1, linkLst, extbrz, srchprv, nulcmd,
     /*  P       Q       R       S       T       U       V       W        */
@@ -31,7 +31,7 @@ unsigned char GlobalKeymap[128] = {
     /*  X       Y       Z       [       \       ]       ^       _        */
     nulcmd, nulcmd, ctrCsrH, topA, nulcmd, lastA, linbeg, nulcmd,
     /*  `       a       b       c       d       e       f       g        */
-    nulcmd, svA, pgBack, curURL, nulcmd, nulcmd, nulcmd, goLineF,
+    nulcmd, svA, pgBack, curURL, nulcmd, nulcmd, hintL, goLineF,
     /*  h       i       j       k       l       m       n       o        */
     movL, peekIMG, movD, movU, movR, msToggle, srchnxt, ldOpt,
     /*  p       q       r       s       t       u       v       w        */
@@ -58,7 +58,7 @@ unsigned char EscKeymap[128] = {
     /*  8       9       :       ;       <       =       >       ?        */
     nulcmd, nulcmd, chkNMID, nulcmd, goLineF, nulcmd, goLineL, nulcmd,
     /*  @       A       B       C       D       E       F       G        */
-    nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd,
+    nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, rFrame, nulcmd,
     /*  H       I       J       K       L       M       N       O        */
     nulcmd, svI, nulcmd, nulcmd, nulcmd, linkbrz, nulcmd, escbmap,
     /*  P       Q       R       S       T       U       V       W        */

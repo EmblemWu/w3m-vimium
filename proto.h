@@ -64,6 +64,8 @@ extern void followForm(void);
 extern void topA(void);
 extern void lastA(void);
 extern void nthA(void);
+extern void hintL(void);
+extern void hintTabL(void);
 extern void onA(void);
 
 extern void nextA(void);

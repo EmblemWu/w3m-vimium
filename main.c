@@ -295,12 +295,12 @@ static GC_warn_proc orig_GC_warn_proc = NULL;
 #define GC_WARN_KEEP_MAX (20)
 
 static void
-wrap_GC_warn_proc(char *msg, GC_word arg)
+wrap_GC_warn_proc(const char *msg, GC_word arg)
 {
     if (fmInitialized) {
 	/* *INDENT-OFF* */
 	static struct {
-	    char *msg;
+	    const char *msg;
 	    GC_word arg;
 	} msg_ring[GC_WARN_KEEP_MAX];
 	/* *INDENT-ON* */
@@ -3722,11 +3722,11 @@ DEFUN(lastA, LINK_END, "Move to the last hyperlink")
 DEFUN(nthA, LINK_N, "Go to the nth link")
 {
     HmarkerList *hl = Currentbuf->hmarklist;
-	BufferPoint *po;
-	Anchor *an;
+		BufferPoint *po;
+		Anchor *an;
 
-	int n = searchKeyNum();
-	if (n < 0 || n > hl->nmark) return;
+		int n = searchKeyNum();
+		if (n < 0 || n > hl->nmark) return;
 
 	if (Currentbuf->firstLine == NULL)
 		return;
@@ -3741,8 +3741,296 @@ DEFUN(nthA, LINK_N, "Go to the nth link")
 
     gotoLine(Currentbuf, po->line);
     Currentbuf->pos = po->pos;
-    arrangeCursor(Currentbuf);
-    displayBuffer(Currentbuf, B_NORMAL);
+	arrangeCursor(Currentbuf);
+	displayBuffer(Currentbuf, B_NORMAL);
+}
+
+typedef struct {
+    BufferPoint pt;
+    int x;			/* screen column (absolute, including rootX) */
+    int y;			/* screen line (absolute, including rootY) */
+    char *label;		/* NUL-terminated, lowercase ASCII */
+} HintItem;
+
+static const char hint_chars[] = "asdfghjkl";
+
+static int
+hint_label_len(int n)
+{
+    int base = (int)(sizeof(hint_chars) - 1);
+    int len = 1;
+    int cap = base;
+
+    while (n > cap) {
+	len++;
+	if (cap > 1000000)	/* defensive: avoid overflow */
+	    break;
+	cap *= base;
+    }
+    return len;
+}
+
+static void
+hint_make_label(char *dst, int dstlen, int idx, int len)
+{
+    int base = (int)(sizeof(hint_chars) - 1);
+    int i;
+
+    if (dstlen <= len)
+	return;
+    for (i = len - 1; i >= 0; i--) {
+	dst[i] = hint_chars[idx % base];
+	idx /= base;
+    }
+    dst[len] = '\0';
+}
+
+static int
+hint_prefix_match(const char *label, const char *prefix)
+{
+    while (*prefix) {
+	if (*label == '\0' || *label != *prefix)
+	    return 0;
+	label++;
+	prefix++;
+    }
+    return 1;
+}
+
+static int
+collect_visible_hints(Buffer *buf, HintItem **items_ret, int *label_len_ret)
+{
+    HmarkerList *hl;
+    long top, bottom;
+    int i, nvis, llen;
+    HintItem *items;
+
+    *items_ret = NULL;
+    *label_len_ret = 0;
+
+    if (buf == NULL || buf->firstLine == NULL || buf->topLine == NULL)
+	return 0;
+    hl = buf->hmarklist;
+    if (!hl || hl->nmark <= 0)
+	return 0;
+
+    top = buf->topLine->linenumber;
+    bottom = top + buf->LINES - 1;
+
+    nvis = 0;
+    for (i = 0; i < hl->nmark; i++) {
+	BufferPoint *po = hl->marks + i;
+	Line *l;
+	int rel_y, col, x, y;
+
+	if (po->line < top || po->line > bottom)
+	    continue;
+	rel_y = (int)(po->line - top);
+	if (rel_y < 0 || rel_y >= buf->LINES)
+	    continue;
+	l = currentLineSkip(buf, buf->topLine, rel_y, FALSE);
+	if (l == NULL)
+	    continue;
+
+	col = COLPOS(l, po->pos) - buf->currentColumn;
+	x = buf->rootX + col;
+	y = buf->rootY + rel_y;
+
+	if (x < buf->rootX || x >= COLS)
+	    continue;
+	if (y < 0 || y >= LINES)
+	    continue;
+
+	nvis++;
+    }
+
+    if (nvis <= 0)
+	return 0;
+
+    llen = hint_label_len(nvis);
+    items = New_N(HintItem, nvis);
+
+    nvis = 0;
+    for (i = 0; i < hl->nmark; i++) {
+	BufferPoint *po = hl->marks + i;
+	Line *l;
+	int rel_y, col, x, y;
+	char *label;
+
+	if (po->line < top || po->line > bottom)
+	    continue;
+	rel_y = (int)(po->line - top);
+	if (rel_y < 0 || rel_y >= buf->LINES)
+	    continue;
+	l = currentLineSkip(buf, buf->topLine, rel_y, FALSE);
+	if (l == NULL)
+	    continue;
+
+	col = COLPOS(l, po->pos) - buf->currentColumn;
+	x = buf->rootX + col;
+	y = buf->rootY + rel_y;
+
+	if (x < buf->rootX || x >= COLS)
+	    continue;
+	if (y < 0 || y >= LINES)
+	    continue;
+
+	label = New_N(char, llen + 1);
+	hint_make_label(label, llen + 1, nvis, llen);
+
+	items[nvis].pt = *po;
+	items[nvis].x = x;
+	items[nvis].y = y;
+	items[nvis].label = label;
+	nvis++;
+    }
+
+    *items_ret = items;
+    *label_len_ret = llen;
+    return nvis;
+}
+
+static void
+draw_hints(const HintItem *items, int nitem, int label_len, const char *prefix)
+{
+    int i;
+
+    for (i = 0; i < nitem; i++) {
+	int x = items[i].x;
+	int y = items[i].y;
+
+	if (prefix && *prefix && !hint_prefix_match(items[i].label, prefix))
+	    continue;
+	if (x < 0 || y < 0 || x >= COLS || y >= LINES)
+	    continue;
+
+	if (x + label_len > COLS)
+	    x = COLS - label_len;
+	move(y, x);
+	standout();
+	addstr(items[i].label);
+	standend();
+    }
+}
+
+static int
+count_hint_matches(const HintItem *items, int nitem, const char *prefix,
+		   int *only_index_ret)
+{
+    int i, nmatch = 0, only = -1;
+
+    for (i = 0; i < nitem; i++) {
+	if (!hint_prefix_match(items[i].label, prefix))
+	    continue;
+	only = i;
+	nmatch++;
+	if (nmatch > 1)
+	    break;
+    }
+    if (only_index_ret)
+	*only_index_ret = (nmatch == 1) ? only : -1;
+    return nmatch;
+}
+
+static void
+hint_follow(int open_in_tab)
+{
+    HintItem *items;
+    int nitem, label_len;
+    char prefix[32];
+    int plen;
+
+    nitem = collect_visible_hints(Currentbuf, &items, &label_len);
+    if (nitem <= 0) {
+	disp_message("No visible links to hint", TRUE);
+	return;
+    }
+
+    prefix[0] = '\0';
+    plen = 0;
+
+    for (;;) {
+	int only = -1;
+	int nmatch;
+	int c;
+
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	draw_hints(items, nitem, label_len, prefix);
+	message(Sprintf("Hint%s: %s", open_in_tab ? " (tab)" : "", prefix)->ptr,
+		0, 0);
+	refresh();
+
+	nmatch = count_hint_matches(items, nitem, prefix, &only);
+	if (nmatch == 1 && plen > 0) {
+	    gotoLine(Currentbuf, items[only].pt.line);
+	    Currentbuf->pos = items[only].pt.pos;
+	    arrangeCursor(Currentbuf);
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    if (open_in_tab)
+		tabA();
+	    else
+		followA();
+	    return;
+	}
+
+	c = getch();
+	if (c == ESC_CODE || c == CTRL_G || c == CTRL_C)
+	    break;
+	if (c == '\r' || c == '\n') {
+	    if (nmatch == 1) {
+		gotoLine(Currentbuf, items[only].pt.line);
+		Currentbuf->pos = items[only].pt.pos;
+		arrangeCursor(Currentbuf);
+		displayBuffer(Currentbuf, B_FORCE_REDRAW);
+		if (open_in_tab)
+		    tabA();
+		else
+		    followA();
+		return;
+	    }
+	    bell();
+	    continue;
+	}
+	if (c == '\b' || c == DEL_CODE) {
+	    if (plen > 0) {
+		prefix[--plen] = '\0';
+	    }
+	    else {
+		bell();
+	    }
+	    continue;
+	}
+	if (IS_ALPHA(c)) {
+	    int idx;
+
+	    if (plen >= label_len) {
+		bell();
+		continue;
+	    }
+	    prefix[plen++] = TOLOWER(c);
+	    prefix[plen] = '\0';
+
+	    if (count_hint_matches(items, nitem, prefix, &idx) == 0) {
+		prefix[--plen] = '\0';
+		bell();
+	    }
+	    continue;
+	}
+
+	/* Ignore other keys in hint mode. */
+    }
+
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+}
+
+DEFUN(hintL, HINT_LINK, "Hint visible links and follow (Vimium-like)")
+{
+    hint_follow(FALSE);
+}
+
+DEFUN(hintTabL, HINT_TAB_LINK, "Hint visible links and open in a new tab (Vimium-like)")
+{
+    hint_follow(TRUE);
 }
 
 /* go to the next anchor */
