@@ -50,3 +50,20 @@ Also, terminal commands are can be used by:
     Help    : ^[[28~
 
 (Confirm for each keyboard using Ctrl-V + key.)
+
+
+w3m-vimium (this fork)
+----------------------
+
+This fork adds a few Vimium-style commands (see the top-level README):
+
+- `HINT_LINK` / `HINT_TAB_LINK` (default: `f` / `F`)
+- `VIMIUM_G` (default: `g`, used for `gg`)
+- `VIMIUM_Y` (default: `y`, used for `yy` and `yf`)
+
+Example mappings for ~/.w3m/keymap:
+
+    keymap f HINT_LINK
+    keymap F HINT_TAB_LINK
+    keymap g VIMIUM_G
+    keymap y VIMIUM_Y

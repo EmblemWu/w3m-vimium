@@ -10,3 +10,57 @@ forked from the original version <https://sourceforge.net/projects/w3m/>.
 If you can read English, see doc/*.
 If you can read Japanese, see doc-jp/*.
 If you can read both, read both and correct English. :-)
+
+
+w3m-vimium (this fork)
+======================
+
+This repository is a small fork that adds a Vimium/Qutebrowser-style workflow
+on top of w3m.
+
+Added features
+--------------
+
+- Link hint mode:
+  - `f` hint visible links and follow
+  - `F` hint visible links and open in a new tab
+- Yank/copy:
+  - `yy` copy current page URL to clipboard
+  - `yf` hint visible links and copy the selected link URL to clipboard
+- Vimium-like navigation remaps (default keymap):
+  - `j` scroll down, `k` scroll up
+  - `h` scroll left, `l` scroll right
+  - `H` back, `L` forward
+  - `gg` go to top (implemented as a `g` prefix)
+
+Clipboard integration
+---------------------
+
+Clipboard writing uses the first available tool:
+
+- `wl-copy` (Wayland)
+- `xclip` (X11)
+- `xsel` (X11)
+
+You can override the command via `W3M_CLIPBOARD_CMD` (reads text from stdin),
+for example:
+
+    export W3M_CLIPBOARD_CMD="wl-copy"
+
+If no clipboard tool is available, yank commands will show a message.
+
+Build / install notes
+---------------------
+
+w3m requires Boehm GC headers (`gc.h`). You can either install your distro's GC
+development package, or build/install Boehm GC yourself and point w3m to it.
+
+On Fedora, you may need to explicitly select terminfo at configure time:
+
+    --with-termlib=:libtinfo.so.6
+
+Upstream / remotes
+------------------
+
+- `origin` points to this fork.
+- `upstream` points to the upstream w3m repository.
