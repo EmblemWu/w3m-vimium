@@ -295,12 +295,12 @@ static GC_warn_proc orig_GC_warn_proc = NULL;
 #define GC_WARN_KEEP_MAX (20)
 
 static void
-wrap_GC_warn_proc(const char *msg, GC_word arg)
+wrap_GC_warn_proc(char *msg, GC_word arg)
 {
     if (fmInitialized) {
 	/* *INDENT-OFF* */
 	static struct {
-	    const char *msg;
+	    char *msg;
 	    GC_word arg;
 	} msg_ring[GC_WARN_KEEP_MAX];
 	/* *INDENT-ON* */
@@ -3722,27 +3722,30 @@ DEFUN(lastA, LINK_END, "Move to the last hyperlink")
 DEFUN(nthA, LINK_N, "Go to the nth link")
 {
     HmarkerList *hl = Currentbuf->hmarklist;
-		BufferPoint *po;
-		Anchor *an;
+    BufferPoint *po;
+    Anchor *an;
+    int n;
 
-		int n = searchKeyNum();
-		if (n < 0 || n > hl->nmark) return;
-
-	if (Currentbuf->firstLine == NULL)
-		return;
+    if (Currentbuf->firstLine == NULL)
+	return;
     if (!hl || hl->nmark == 0)
-		return;
+	return;
 
-	po = hl->marks + n-1;
-	an = retrieveAnchor(Currentbuf->href, po->line, po->pos);
-	if (an == NULL)
-		an = retrieveAnchor(Currentbuf->formitem, po->line, po->pos);
-	if (an == NULL) return;
+    n = searchKeyNum();
+    if (n <= 0 || n > hl->nmark)
+	return;
+
+    po = hl->marks + n - 1;
+    an = retrieveAnchor(Currentbuf->href, po->line, po->pos);
+    if (an == NULL)
+	an = retrieveAnchor(Currentbuf->formitem, po->line, po->pos);
+    if (an == NULL)
+	return;
 
     gotoLine(Currentbuf, po->line);
     Currentbuf->pos = po->pos;
-	arrangeCursor(Currentbuf);
-	displayBuffer(Currentbuf, B_NORMAL);
+    arrangeCursor(Currentbuf);
+    displayBuffer(Currentbuf, B_NORMAL);
 }
 
 typedef struct {
@@ -3752,7 +3755,9 @@ typedef struct {
     char *label;		/* NUL-terminated, lowercase ASCII */
 } HintItem;
 
-static const char hint_chars[] = "asdfghjkl";
+/* Lowercase hint alphabet, home row first. A larger alphabet keeps labels
+ * short on link-dense pages. */
+static const char hint_chars[] = "asdfghjklqwertyuiopzxcvbnm";
 typedef enum {
     HINT_ACT_FOLLOW = 0,
     HINT_ACT_TAB = 1,
@@ -3763,8 +3768,8 @@ static int
 cmd_in_path(const char *cmd)
 {
     const char *path;
-    size_t cmdlen;
     const char *p;
+    size_t cmdlen;
 
     if (cmd == NULL || *cmd == '\0')
 	return 0;
@@ -3773,32 +3778,25 @@ cmd_in_path(const char *cmd)
 	return 0;
 
     cmdlen = strlen(cmd);
-    p = path;
-    while (*p) {
+    for (p = path; *p != '\0';) {
 	const char *colon = strchr(p, ':');
 	size_t dirlen = colon ? (size_t)(colon - p) : strlen(p);
-	size_t fullen;
-	char *full;
 
-	/* Empty PATH entry means current directory. */
 	if (dirlen == 0) {
-	    p = colon ? colon + 1 : p;
+	    /* An empty PATH entry means the current directory. */
 	    if (access(cmd, X_OK) == 0)
 		return 1;
-	    if (!colon)
-		break;
-	    continue;
 	}
+	else {
+	    char *full = New_N(char, (int)(dirlen + 1 + cmdlen + 1));
 
-	fullen = dirlen + 1 + cmdlen + 1;
-	full = New_N(char, (int)fullen);
-	memcpy(full, p, dirlen);
-	full[dirlen] = '/';
-	memcpy(full + dirlen + 1, cmd, cmdlen);
-	full[dirlen + 1 + cmdlen] = '\0';
-
-	if (access(full, X_OK) == 0)
-	    return 1;
+	    memcpy(full, p, dirlen);
+	    full[dirlen] = '/';
+	    memcpy(full + dirlen + 1, cmd, cmdlen);
+	    full[dirlen + 1 + cmdlen] = '\0';
+	    if (access(full, X_OK) == 0)
+		return 1;
+	}
 
 	if (!colon)
 	    break;
@@ -3819,9 +3817,26 @@ clipboard_write_cmd(const char *cmd, const char *text)
     if (fp == NULL)
 	return 0;
     fputs(text, fp);
-    fputc('\n', fp);
     rc = pclose(fp);
     return (rc == 0);
+}
+
+static const char *
+clipboard_fallback_cmd(void)
+{
+    static const char *cached = NULL;
+    static int cached_done = 0;
+
+    if (!cached_done) {
+	cached_done = 1;
+	if (cmd_in_path("wl-copy"))
+	    cached = "wl-copy";
+	else if (cmd_in_path("xclip"))
+	    cached = "xclip -selection clipboard";
+	else if (cmd_in_path("xsel"))
+	    cached = "xsel -ib";
+    }
+    return cached;
 }
 
 static int
@@ -3832,27 +3847,19 @@ clipboard_write(const char *text)
     if (cmd && *cmd)
 	return clipboard_write_cmd(cmd, text);
 
-    if (cmd_in_path("wl-copy"))
-	return clipboard_write_cmd("wl-copy", text);
-    if (cmd_in_path("xclip"))
-	return clipboard_write_cmd("xclip -selection clipboard", text);
-    if (cmd_in_path("xsel"))
-	return clipboard_write_cmd("xsel -ib", text);
-
-    return 0;
+    cmd = clipboard_fallback_cmd();
+    return cmd ? clipboard_write_cmd(cmd, text) : 0;
 }
 
 static int
 hint_label_len(int n)
 {
     int base = (int)(sizeof(hint_chars) - 1);
+    long long cap = base;
     int len = 1;
-    int cap = base;
 
-    while (n > cap) {
+    while ((long long)n > cap) {
 	len++;
-	if (cap > 1000000)	/* defensive: avoid overflow */
-	    break;
 	cap *= base;
     }
     return len;
@@ -3864,8 +3871,12 @@ hint_make_label(char *dst, int dstlen, int idx, int len)
     int base = (int)(sizeof(hint_chars) - 1);
     int i;
 
-    if (dstlen <= len)
+    if (dst == NULL || dstlen <= 0)
 	return;
+    if (dstlen <= len) {
+	dst[0] = '\0';
+	return;
+    }
     for (i = len - 1; i >= 0; i--) {
 	dst[i] = hint_chars[idx % base];
 	idx /= base;
@@ -3885,13 +3896,45 @@ hint_prefix_match(const char *label, const char *prefix)
     return 1;
 }
 
+/* Compute the absolute screen coordinates of a marker if it is currently
+ * visible on screen. Returns 0 when the marker is outside the viewport. */
+static int
+hint_visible_pos(Buffer *buf, Line **lines, int nline, long top,
+		 const BufferPoint *po, int *x_ret, int *y_ret)
+{
+    Line *l;
+    long rel = po->line - top;
+    int col, x, y;
+
+    if (rel < 0 || rel >= nline)
+	return 0;
+    l = lines[rel];
+    if (l == NULL)
+	return 0;
+
+    col = COLPOS(l, po->pos) - buf->currentColumn;
+    x = buf->rootX + col;
+    y = buf->rootY + (int)rel;
+
+    if (x < buf->rootX || x >= COLS)
+	return 0;
+    if (y < 0 || y >= LINES)
+	return 0;
+
+    *x_ret = x;
+    *y_ret = y;
+    return 1;
+}
+
 static int
 collect_visible_hints(Buffer *buf, HintItem **items_ret, int *label_len_ret)
 {
     HmarkerList *hl;
-    long top, bottom;
-    int i, nvis, llen;
+    Line **lines;
+    Line *l;
     HintItem *items;
+    long top;
+    int nline, i, nvis, llen;
 
     *items_ret = NULL;
     *label_len_ret = 0;
@@ -3902,36 +3945,27 @@ collect_visible_hints(Buffer *buf, HintItem **items_ret, int *label_len_ret)
     if (!hl || hl->nmark <= 0)
 	return 0;
 
+    nline = buf->LINES;
     top = buf->topLine->linenumber;
-    bottom = top + buf->LINES - 1;
 
-    nvis = 0;
-    for (i = 0; i < hl->nmark; i++) {
-	BufferPoint *po = hl->marks + i;
-	Line *l;
-	int rel_y, col, x, y;
-
-	if (po->line < top || po->line > bottom)
-	    continue;
-	rel_y = (int)(po->line - top);
-	if (rel_y < 0 || rel_y >= buf->LINES)
-	    continue;
-	l = currentLineSkip(buf, buf->topLine, rel_y, FALSE);
-	if (l == NULL)
-	    continue;
-
-	col = COLPOS(l, po->pos) - buf->currentColumn;
-	x = buf->rootX + col;
-	y = buf->rootY + rel_y;
-
-	if (x < buf->rootX || x >= COLS)
-	    continue;
-	if (y < 0 || y >= LINES)
-	    continue;
-
-	nvis++;
+    /* Resolve the Line for each visible row once, instead of walking the
+     * line list from the top for every candidate link. */
+    lines = New_N(Line *, nline);
+    l = buf->topLine;
+    for (i = 0; i < nline; i++) {
+	lines[i] = l;
+	if (l != NULL)
+	    l = l->next;
     }
 
+    /* Count the visible markers first so we only allocate what we need. */
+    nvis = 0;
+    for (i = 0; i < hl->nmark; i++) {
+	int x, y;
+
+	if (hint_visible_pos(buf, lines, nline, top, hl->marks + i, &x, &y))
+	    nvis++;
+    }
     if (nvis <= 0)
 	return 0;
 
@@ -3941,26 +3975,10 @@ collect_visible_hints(Buffer *buf, HintItem **items_ret, int *label_len_ret)
     nvis = 0;
     for (i = 0; i < hl->nmark; i++) {
 	BufferPoint *po = hl->marks + i;
-	Line *l;
-	int rel_y, col, x, y;
 	char *label;
+	int x, y;
 
-	if (po->line < top || po->line > bottom)
-	    continue;
-	rel_y = (int)(po->line - top);
-	if (rel_y < 0 || rel_y >= buf->LINES)
-	    continue;
-	l = currentLineSkip(buf, buf->topLine, rel_y, FALSE);
-	if (l == NULL)
-	    continue;
-
-	col = COLPOS(l, po->pos) - buf->currentColumn;
-	x = buf->rootX + col;
-	y = buf->rootY + rel_y;
-
-	if (x < buf->rootX || x >= COLS)
-	    continue;
-	if (y < 0 || y >= LINES)
+	if (!hint_visible_pos(buf, lines, nline, top, po, &x, &y))
 	    continue;
 
 	label = New_N(char, llen + 1);
@@ -4023,42 +4041,43 @@ count_hint_matches(const HintItem *items, int nitem, const char *prefix,
 static void
 hint_act_on_point(const BufferPoint *pt, HintAction act)
 {
+    Anchor *a;
+    ParsedURL u;
+    Str s;
+
     if (pt == NULL)
 	return;
+
+    if (act == HINT_ACT_YANK) {
+	/* Yank reads the anchor from the saved point, so there is no need to
+	 * reposition the cursor (which would disturb the user's view). */
+	a = retrieveAnchor(Currentbuf->href, pt->line, pt->pos);
+	if (a == NULL)
+	    a = retrieveAnchor(Currentbuf->formitem, pt->line, pt->pos);
+	if (a == NULL || a->url == NULL) {
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    bell();
+	    return;
+	}
+	parseURL2(a->url, &u, baseURL(Currentbuf));
+	s = parsedURL2Str(&u);
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	if (clipboard_write(s->ptr))
+	    disp_message("Copied link URL to clipboard", TRUE);
+	else
+	    disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
+	return;
+    }
 
     gotoLine(Currentbuf, pt->line);
     Currentbuf->pos = pt->pos;
     arrangeCursor(Currentbuf);
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
 
-    switch (act) {
-    case HINT_ACT_FOLLOW:
+    if (act == HINT_ACT_FOLLOW)
 	followA();
-	break;
-    case HINT_ACT_TAB:
+    else
 	tabA();
-	break;
-    case HINT_ACT_YANK:
-	{
-	    Anchor *a = retrieveAnchor(Currentbuf->href, pt->line, pt->pos);
-	    ParsedURL u;
-	    Str s;
-
-	    if (a == NULL)
-		a = retrieveAnchor(Currentbuf->formitem, pt->line, pt->pos);
-	    if (a == NULL || a->url == NULL) {
-		bell();
-		break;
-	    }
-	    parseURL2(a->url, &u, baseURL(Currentbuf));
-	    s = parsedURL2Str(&u);
-	    if (clipboard_write(s->ptr))
-		disp_message("Copied link URL to clipboard", TRUE);
-	    else
-		disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
-	}
-	break;
-    }
 }
 
 static void
