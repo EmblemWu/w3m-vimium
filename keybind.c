@@ -15,7 +15,7 @@ unsigned char GlobalKeymap[128] = {
     /*  C-x     C-y     C-z     C-[     C-\     C-]     C-^     C-_      */
     nulcmd, nulcmd, susp, escmap, nulcmd, nulcmd, nulcmd, goHome,
     /*  SPC     !       "       #       $       %       &       '        */
-    pgFore, execsh, reMark, pipesh, linend, nulcmd, nulcmd, nulcmd,
+    pgFore, execsh, reMark, pipesh, linend, nulcmd, nulcmd, gotoVimMark,
     /*  (       )       *       +       ,       -       .       /        */
     undoPos, redoPos, nulcmd, pgFore, col1L, pgBack, col1R, srchfor,
     /*  0       1       2       3       4       5       6       7        */
@@ -25,17 +25,17 @@ unsigned char GlobalKeymap[128] = {
     /*  @       A       B       C       D       E       F       G        */
     readsh, nulcmd, backBf, nulcmd, ldDL, editBf, hintTabL, goLineL,
     /*  H       I       J       K       L       M       N       O        */
-    backBf, followI, nextT, prevT, nextBf, extbrz, srchprv, nulcmd,
+    backBf, followI, nextT, prevT, nextBf, extbrz, srchprv, tabOpenURL,
     /*  P       Q       R       S       T       U       V       W        */
-    nulcmd, quitfm, reload, svBuf, newT, goURL, ldfile, movLW,
+    tabPasteURL, quitfm, reload, svBuf, newT, goURL, ldfile, movLW,
     /*  X       Y       Z       [       \       ]       ^       _        */
-    nulcmd, nulcmd, ctrCsrH, topA, nulcmd, lastA, linbeg, nulcmd,
+    restoreTab, nulcmd, ctrCsrH, topA, nulcmd, lastA, linbeg, nulcmd,
     /*  `       a       b       c       d       e       f       g        */
     nulcmd, svA, pgBack, curURL, hpgFore, nulcmd, hintL, vimiumG,
     /*  h       i       j       k       l       m       n       o        */
-    col1L, peekIMG, lup1, ldown1, col1R, msToggle, srchnxt, ldOpt,
+    col1L, peekIMG, lup1, ldown1, col1R, setVimMark, srchnxt, openURL,
     /*  p       q       r       s       t       u       v       w        */
-    peekURL, qquitfm, dispVer, selMn, nulcmd, hpgBack, vwSrc, movRW,
+    pasteURL, qquitfm, dispVer, selMn, nulcmd, hpgBack, vwSrc, movRW,
     /*  x       y       z       {       |       }       ~       DEL      */
     closeT, vimiumY, ctrCsrV, prevT, pipeBuf, nextT, nulcmd, nulcmd,
 };

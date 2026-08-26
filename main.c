@@ -3762,6 +3762,7 @@ typedef enum {
     HINT_ACT_FOLLOW = 0,
     HINT_ACT_TAB = 1,
     HINT_ACT_YANK = 2,
+    HINT_ACT_YANK_IMG = 3,
 } HintAction;
 
 static int
@@ -3829,12 +3830,56 @@ clipboard_fallback_cmd(void)
 
     if (!cached_done) {
 	cached_done = 1;
+#if defined(__APPLE__) || defined(__MACH__)
+	if (cmd_in_path("pbcopy"))
+	    cached = "pbcopy";
+	else
+#endif
 	if (cmd_in_path("wl-copy"))
 	    cached = "wl-copy";
 	else if (cmd_in_path("xclip"))
 	    cached = "xclip -selection clipboard";
 	else if (cmd_in_path("xsel"))
 	    cached = "xsel -ib";
+#if !(defined(__APPLE__) || defined(__MACH__))
+	else if (cmd_in_path("pbcopy"))
+	    cached = "pbcopy";
+#endif
+	else if (cmd_in_path("putclip"))
+	    cached = "putclip";
+	else if (cmd_in_path("clip.exe"))
+	    cached = "clip.exe";
+    }
+    return cached;
+}
+
+static const char *
+clipboard_paste_fallback_cmd(void)
+{
+    static const char *cached = NULL;
+    static int cached_done = 0;
+
+    if (!cached_done) {
+	cached_done = 1;
+#if defined(__APPLE__) || defined(__MACH__)
+	if (cmd_in_path("pbpaste"))
+	    cached = "pbpaste";
+	else
+#endif
+	if (cmd_in_path("wl-paste"))
+	    cached = "wl-paste --no-newline";
+	else if (cmd_in_path("xclip"))
+	    cached = "xclip -selection clipboard -o";
+	else if (cmd_in_path("xsel"))
+	    cached = "xsel -ob";
+#if !(defined(__APPLE__) || defined(__MACH__))
+	else if (cmd_in_path("pbpaste"))
+	    cached = "pbpaste";
+#endif
+	else if (cmd_in_path("getclip"))
+	    cached = "getclip";
+	else if (cmd_in_path("powershell.exe"))
+	    cached = "powershell.exe -NoProfile -Command Get-Clipboard";
     }
     return cached;
 }
@@ -3849,6 +3894,39 @@ clipboard_write(const char *text)
 
     cmd = clipboard_fallback_cmd();
     return cmd ? clipboard_write_cmd(cmd, text) : 0;
+}
+
+static char *
+clipboard_read(void)
+{
+    const char *cmd = getenv("W3M_CLIPBOARD_PASTE_CMD");
+    FILE *fp;
+    Str s;
+    char buf[512];
+
+    if (!cmd || !*cmd)
+	cmd = clipboard_paste_fallback_cmd();
+    if (cmd == NULL || *cmd == '\0')
+	return NULL;
+
+    fp = popen(cmd, "r");
+    if (fp == NULL)
+	return NULL;
+
+    s = Strnew();
+    while (fgets(buf, sizeof(buf), fp) != NULL)
+	Strcat_charp(s, buf);
+    pclose(fp);
+
+    if (s->length == 0)
+	return NULL;
+
+    Strchop(s);
+    Strremovefirstspaces(s);
+    if (s->length == 0)
+	return NULL;
+
+    return s->ptr;
 }
 
 static int
@@ -4012,6 +4090,8 @@ draw_hints(const HintItem *items, int nitem, int label_len, const char *prefix)
 
 	if (x + label_len > COLS)
 	    x = COLS - label_len;
+	if (Currentbuf && x < Currentbuf->rootX)
+	    x = Currentbuf->rootX;
 	move(y, x);
 	standout();
 	addstr(items[i].label);
@@ -4048,10 +4128,13 @@ hint_act_on_point(const BufferPoint *pt, HintAction act)
     if (pt == NULL)
 	return;
 
-    if (act == HINT_ACT_YANK) {
+    if (act == HINT_ACT_YANK || act == HINT_ACT_YANK_IMG) {
 	/* Yank reads the anchor from the saved point, so there is no need to
 	 * reposition the cursor (which would disturb the user's view). */
-	a = retrieveAnchor(Currentbuf->href, pt->line, pt->pos);
+	if (act == HINT_ACT_YANK_IMG)
+	    a = retrieveAnchor(Currentbuf->img, pt->line, pt->pos);
+	else
+	    a = retrieveAnchor(Currentbuf->href, pt->line, pt->pos);
 	if (a == NULL)
 	    a = retrieveAnchor(Currentbuf->formitem, pt->line, pt->pos);
 	if (a == NULL || a->url == NULL) {
@@ -4063,7 +4146,8 @@ hint_act_on_point(const BufferPoint *pt, HintAction act)
 	s = parsedURL2Str(&u);
 	displayBuffer(Currentbuf, B_FORCE_REDRAW);
 	if (clipboard_write(s->ptr))
-	    disp_message("Copied link URL to clipboard", TRUE);
+	    disp_message((act == HINT_ACT_YANK_IMG) ? "Copied image URL to clipboard"
+						   : "Copied link URL to clipboard", TRUE);
 	else
 	    disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
 	return;
@@ -4103,7 +4187,9 @@ hint_mode(HintAction act)
 	int c;
 	const char *tag;
 
-	tag = (act == HINT_ACT_TAB) ? " (tab)" : (act == HINT_ACT_YANK) ? " (yank)" : "";
+	tag = (act == HINT_ACT_TAB) ? " (tab)" :
+	      (act == HINT_ACT_YANK) ? " (yank)" :
+	      (act == HINT_ACT_YANK_IMG) ? " (yank img)" : "";
 
 	displayBuffer(Currentbuf, B_FORCE_REDRAW);
 	draw_hints(items, nitem, label_len, prefix);
@@ -4180,7 +4266,318 @@ yank_current_url(void)
 	disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
 }
 
-DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg")
+static void
+duplicate_current_tab(void)
+{
+    Buffer *buf;
+    char *url;
+
+    if (Currentbuf == NULL)
+	return;
+    url = parsedURL2Str(&Currentbuf->currentURL)->ptr;
+    _newT();
+    buf = Currentbuf;
+    cmd_loadURL(url, NULL, NO_REFERER, NULL);
+    if (buf != Currentbuf)
+	delBuffer(buf);
+    else
+	deleteTab(CurrentTab);
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+}
+
+DEFUN(pasteURL, PASTE_URL, "Open clipboard URL in current buffer")
+{
+    char *url = clipboard_read();
+    ParsedURL p_url, *current;
+    Buffer *cur_buf = Currentbuf;
+
+    if (url == NULL || *url == '\0') {
+	disp_message("Clipboard is empty or tool not found", TRUE);
+	return;
+    }
+    SKIP_BLANKS(url);
+    current = baseURL(Currentbuf);
+    parseURL2(url, &p_url, current);
+    pushHashHist(URLHist, parsedURL2Str(&p_url)->ptr);
+    cmd_loadURL(url, current, NO_REFERER, NULL);
+    if (Currentbuf != cur_buf)
+	pushHashHist(URLHist, parsedURL2Str(&Currentbuf->currentURL)->ptr);
+}
+
+DEFUN(tabPasteURL, TAB_PASTE_URL, "Open clipboard URL in a new tab")
+{
+    char *url = clipboard_read();
+    Buffer *buf;
+
+    if (url == NULL || *url == '\0') {
+	disp_message("Clipboard is empty or tool not found", TRUE);
+	return;
+    }
+    SKIP_BLANKS(url);
+    _newT();
+    buf = Currentbuf;
+    cmd_loadURL(url, baseURL(Currentbuf), NO_REFERER, NULL);
+    if (buf != Currentbuf)
+	delBuffer(buf);
+    else
+	deleteTab(CurrentTab);
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+}
+
+static void
+go_url_up(int root)
+{
+    ParsedURL pu;
+    Str s;
+    char *path, *p;
+
+    if (Currentbuf == NULL)
+	return;
+    copyParsedURL(&pu, &Currentbuf->currentURL);
+    if (pu.file == NULL || *pu.file == '\0')
+	return;
+
+    path = allocStr(pu.file, -1);
+    p = strchr(path, '?');
+    if (p)
+	*p = '\0';
+    p = strchr(path, '#');
+    if (p)
+	*p = '\0';
+
+    if (root) {
+	pu.file = "/";
+    }
+    else {
+	size_t len = strlen(path);
+	if (len > 1 && path[len - 1] == '/')
+	    path[len - 1] = '\0';
+	p = strrchr(path, '/');
+	if (p && p != path) {
+	    *(p + 1) = '\0';
+	    pu.file = path;
+	}
+	else {
+	    pu.file = "/";
+	}
+    }
+    pu.label = NULL;
+    s = parsedURL2Str(&pu);
+    if (s && s->ptr) {
+	ParsedURL p_url, *current;
+	Buffer *cur_buf = Currentbuf;
+
+	current = baseURL(Currentbuf);
+	parseURL2(s->ptr, &p_url, current);
+	pushHashHist(URLHist, parsedURL2Str(&p_url)->ptr);
+	cmd_loadURL(s->ptr, current, NO_REFERER, NULL);
+	if (Currentbuf != cur_buf)
+	    pushHashHist(URLHist, parsedURL2Str(&Currentbuf->currentURL)->ptr);
+    }
+}
+
+static void
+focus_first_input(void)
+{
+    HmarkerList *hl;
+    int i, n_forms = 0;
+    int form_marks[128];
+    static int last_form_idx = -1;
+
+    if (Currentbuf == NULL || Currentbuf->firstLine == NULL)
+	return;
+    hl = Currentbuf->hmarklist;
+    if (!hl || hl->nmark <= 0)
+	return;
+
+    for (i = 0; i < hl->nmark && n_forms < 128; i++) {
+	BufferPoint *po = hl->marks + i;
+	Anchor *a = retrieveAnchor(Currentbuf->formitem, po->line, po->pos);
+	if (a != NULL)
+	    form_marks[n_forms++] = i;
+    }
+
+    if (n_forms == 0) {
+	topA();
+	return;
+    }
+
+    last_form_idx = (last_form_idx + 1) % n_forms;
+    BufferPoint *target_pt = hl->marks + form_marks[last_form_idx];
+
+    gotoLine(Currentbuf, target_pt->line);
+    Currentbuf->pos = target_pt->pos;
+    arrangeCursor(Currentbuf);
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    _followForm(FALSE);
+}
+
+#define MAX_CLOSED_TABS 16
+static char *closed_tab_urls[MAX_CLOSED_TABS];
+static int n_closed_tabs = 0;
+
+static void
+record_closed_tab(const char *url)
+{
+    int i;
+
+    if (url == NULL || *url == '\0')
+	return;
+    if (n_closed_tabs < MAX_CLOSED_TABS) {
+	closed_tab_urls[n_closed_tabs++] = allocStr(url, -1);
+    }
+    else {
+	for (i = 1; i < MAX_CLOSED_TABS; i++)
+	    closed_tab_urls[i - 1] = closed_tab_urls[i];
+	closed_tab_urls[MAX_CLOSED_TABS - 1] = allocStr(url, -1);
+    }
+}
+
+DEFUN(restoreTab, RESTORE_TAB, "Reopen the last closed tab (Vimium-like)")
+{
+    char *url;
+    Buffer *buf;
+
+    if (n_closed_tabs <= 0) {
+	disp_message("No recently closed tabs to restore", TRUE);
+	return;
+    }
+    url = closed_tab_urls[--n_closed_tabs];
+    _newT();
+    buf = Currentbuf;
+    cmd_loadURL(url, NULL, NO_REFERER, NULL);
+    if (buf != Currentbuf)
+	delBuffer(buf);
+    else
+	deleteTab(CurrentTab);
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    disp_message(Sprintf("Restored tab: %s", url)->ptr, TRUE);
+}
+
+static char *
+smart_url_or_search(const char *input)
+{
+    Str s;
+
+    if (input == NULL || *input == '\0')
+	return NULL;
+
+    if (strncmp(input, "http://", 7) == 0 ||
+	strncmp(input, "https://", 8) == 0 ||
+	strncmp(input, "file://", 7) == 0 ||
+	strncmp(input, "ftp://", 6) == 0 ||
+	strncmp(input, "about:", 6) == 0 ||
+	*input == '/' || *input == '~' || *input == '.') {
+	return (char *)input;
+    }
+
+    if (strchr(input, '.') != NULL && strchr(input, ' ') == NULL) {
+	s = Strnew_charp("https://");
+	Strcat_charp(s, input);
+	return s->ptr;
+    }
+
+    s = Strnew_charp("https://html.duckduckgo.com/html/?q=");
+    Strcat_charp(s, Str_form_quote(Strnew_charp(input))->ptr);
+    return s->ptr;
+}
+
+DEFUN(openURL, OPEN_URL, "Open URL or search query in current buffer (Vimium-like)")
+{
+    char *input;
+    char *target;
+    Buffer *cur_buf = Currentbuf;
+    ParsedURL p_url, *current;
+
+    input = inputStrHist("Open URL or search: ", "", URLHist);
+    if (input == NULL || *input == '\0')
+	return;
+    SKIP_BLANKS(input);
+    target = smart_url_or_search(input);
+    if (target == NULL || *target == '\0')
+	return;
+
+    current = baseURL(Currentbuf);
+    parseURL2(target, &p_url, current);
+    pushHashHist(URLHist, parsedURL2Str(&p_url)->ptr);
+    cmd_loadURL(target, current, NO_REFERER, NULL);
+    if (Currentbuf != cur_buf)
+	pushHashHist(URLHist, parsedURL2Str(&Currentbuf->currentURL)->ptr);
+}
+
+DEFUN(tabOpenURL, TAB_OPEN_URL, "Open URL or search query in a new tab (Vimium-like)")
+{
+    char *input;
+    char *target;
+    Buffer *buf;
+
+    input = inputStrHist("Open in new tab: ", "", URLHist);
+    if (input == NULL || *input == '\0')
+	return;
+    SKIP_BLANKS(input);
+    target = smart_url_or_search(input);
+    if (target == NULL || *target == '\0')
+	return;
+
+    _newT();
+    buf = Currentbuf;
+    cmd_loadURL(target, baseURL(Currentbuf), NO_REFERER, NULL);
+    if (buf != Currentbuf)
+	delBuffer(buf);
+    else
+	deleteTab(CurrentTab);
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+}
+
+static BufferPoint mark_table[26];
+static int mark_valid[26] = {0};
+
+DEFUN(setVimMark, SET_MARK, "Set local mark (m<a-z>)")
+{
+    int c;
+
+    message("Set mark [a-z]: ", 0, 0);
+    refresh();
+    c = getch();
+    if (c >= 'a' && c <= 'z') {
+	int idx = c - 'a';
+	if (Currentbuf && Currentbuf->currentLine) {
+	    mark_table[idx].line = Currentbuf->currentLine->linenumber;
+	    mark_table[idx].pos = Currentbuf->pos;
+	    mark_valid[idx] = 1;
+	    disp_message(Sprintf("Mark '%c' set", c)->ptr, TRUE);
+	}
+    }
+    else {
+	disp_message("Invalid mark character", TRUE);
+    }
+}
+
+DEFUN(gotoVimMark, GOTO_MARK, "Jump to local mark ('<a-z>)")
+{
+    int c;
+
+    message("Jump to mark [a-z]: ", 0, 0);
+    refresh();
+    c = getch();
+    if (c >= 'a' && c <= 'z') {
+	int idx = c - 'a';
+	if (mark_valid[idx] && Currentbuf) {
+	    gotoLine(Currentbuf, mark_table[idx].line);
+	    Currentbuf->pos = mark_table[idx].pos;
+	    arrangeCursor(Currentbuf);
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	}
+	else {
+	    disp_message(Sprintf("Mark '%c' not set", c)->ptr, TRUE);
+	}
+    }
+    else {
+	disp_message("Invalid mark character", TRUE);
+    }
+}
+
+DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi")
 {
     int c;
 
@@ -4191,11 +4588,31 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg")
 	goLineF();
 	return;
     }
+    if (c == 't') {
+	nextT();
+	return;
+    }
+    if (c == 'T') {
+	prevT();
+	return;
+    }
+    if (c == 'u') {
+	go_url_up(0);
+	return;
+    }
+    if (c == 'U') {
+	go_url_up(1);
+	return;
+    }
+    if (c == 'i') {
+	focus_first_input();
+	return;
+    }
     if (IS_ASCII(c))
 	pushEvent((int)GlobalKeymap[c], NULL);
 }
 
-DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf")
+DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf/yi/yt")
 {
     int c;
 
@@ -4208,6 +4625,14 @@ DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf")
     }
     if (c == 'f') {
 	hint_mode(HINT_ACT_YANK);
+	return;
+    }
+    if (c == 'i') {
+	hint_mode(HINT_ACT_YANK_IMG);
+	return;
+    }
+    if (c == 't') {
+	duplicate_current_tab();
 	return;
     }
     if (IS_ASCII(c))
@@ -6890,8 +7315,11 @@ DEFUN(closeT, CLOSE_TAB, "Close tab")
 	tab = numTab(PREC_NUM);
     else
 	tab = CurrentTab;
-    if (tab)
+    if (tab) {
+	if (tab->currentBuffer && tab->currentBuffer->currentURL.file)
+	    record_closed_tab(parsedURL2Str(&tab->currentBuffer->currentURL)->ptr);
 	deleteTab(tab);
+    }
     displayBuffer(Currentbuf, B_REDRAW_IMAGE);
 }
 

@@ -38,6 +38,8 @@ GOTO_LINE	画面下で行番号を入力し，そこで指定した行に移動�
 GOTO_LINK	リンクが指す先の文書を読みこみます
 GOTO_RELATIVE	相対URLを指定して開きます
 HELP		ヘルプファイルを表示します
+HINT_LINK	画面内のリンクにヒントを表示して辿ります(Vimium風)
+HINT_TAB_LINK	画面内のリンクにヒントを表示して新しいタブで開きます(Vimium風)
 HISTORY                URL履歴を表示します
 INFO		現在の文書に関する情報を表示します
 INTERRUPT	文書の読み込みを中断します
@@ -90,6 +92,7 @@ NEXT_WORD	次の単語に移動します
 NOTHING		何もしません
 NULL		何もしません
 OPTIONS		オプション設定パネルを表示します
+PASTE_URL	クリップボードのURLを現在のバッファで開きます
 PEEK		現在の文書のURLを表示します
 PEEK_IMG	現在カーソルがあるリンクを含む画像そのもののURLを表示します
 PEEK_LINK      リンクが指す先のURLを表示します
@@ -139,6 +142,7 @@ TAB_LEFT	現在のタブを左に移動します
 TAB_LINK	リンクが指す先の文書を新しいタブで開きます
 TAB_MENU	タブ選択メニューを立ち上げます
 TAB_MOUSE	マウスカーソルの位置のタブに移動します(マウス操作用)
+TAB_PASTE_URL	クリップボードのURLを新しいタブで開きます
 TAB_RIGHT	現在のタブを右に移動します
 UNDO		最後のカーソル移動を取り消します
 UP		画面を1行上にスクロールします
@@ -146,5 +150,7 @@ VERSION                w3m のバージョンを表示します
 VIEW		HTMLのソースを表示します
 VIEW_BOOKMARK	ブックマークを読み込みます
 VIEW_IMAGE	リンクに対応する画像を表示します
+VIMIUM_G	gg用プレフィックス(Vimium風)
+VIMIUM_Y	yy/yf/yi/yt用プレフィックス(URL・リンク・画像・タブ複製)(Vimium風)
 WHEREIS		ファイル末尾に向かって正規表現を検索します
 WRAP_TOGGLE     折り返し検索モードを切り換えます

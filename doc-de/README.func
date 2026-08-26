@@ -38,6 +38,8 @@ GOTO_LINE	Gehe zur angebenen Zeile
 GOTO_LINK	Folge dem aktuellen Hyperlink in neuem Puffer
 GOTO_RELATIVE	Gehe zu relativer Adresse
 HELP		Zeige Hilfe-Übersicht
+HINT_LINK	Zeige Link-Hinweise und folge (Vimium-Stil)
+HINT_TAB_LINK	Zeige Link-Hinweise und in neuem Reiter öffnen (Vimium-Stil)
 HISTORY 	Chronik aufgesuchter Dokumente
 INFO		Zeige Informationen über dieses Dokument
 INTERRUPT	w3m zum Hintergrundprozess machen
@@ -90,6 +92,7 @@ NEXT_WORD	Gehe zum nächsten Wort
 NOTHING 	Tue nichts
 NULL		Tue nichts
 OPTIONS 	Zeige Einstellungen für Änderungen
+PASTE_URL	Öffne Zwischenablage-URL im aktuellen Puffer
 PEEK		Zeige aktuelle Adresse an
 PEEK_IMG	Zeige Adresse des Bildes
 PEEK_LINK	Zeige Zieladresse
@@ -139,6 +142,7 @@ TAB_LEFT	Einen Reiter weiter nach links gehen
 TAB_LINK	Folge dem aktuellen Hyperlink in einem neuen Reiter
 TAB_MENU	Öffne das Reiter-Auswahl-Menü
 TAB_MOUSE	Wähle per Maus Reiter aus
+TAB_PASTE_URL	Öffne Zwischenablage-URL in einem neuen Reiter
 TAB_RIGHT	Einen Reiter weiter nach rechts gehen
 UNDO		Nimm die letzte Cursorbewegung zurück
 UP		Scrolle den Anzeigebereich eine Zeile aufwärts
@@ -146,5 +150,7 @@ VERSION		Zeige die Version von w3m an
 VIEW		Wechsle zwischen HTML-Wiedergabe und -Verarbeitung
 VIEW_BOOKMARK	Lesezeichen ansehen
 VIEW_IMAGE	Zeige Bild in Betrachter
+VIMIUM_G	Vimium-Präfix für gg
+VIMIUM_Y	Vimium-Präfix für yy/yf/yi/yt
 WHEREIS 	Suche vorwärts
 WRAP_TOGGLE	Wechsle zwischen umlaufendem und nicht-umlaufendem Suchen

@@ -15,39 +15,59 @@ If you can read both, read both and correct English. :-)
 w3m-vimium (this fork)
 ======================
 
-This repository is a small fork that adds a Vimium/Qutebrowser-style workflow
-on top of w3m.
+This repository is a fork of w3m that adds a comprehensive Vimium/Qutebrowser-style
+workflow and keyboard-driven efficiency.
 
 Added features
 --------------
 
 - Link hint mode:
-  - `f` hint visible links and follow
+  - `f` hint visible links and follow in current buffer
   - `F` hint visible links and open in a new tab
-- Yank/copy:
+- Yank / copy (`y` prefix):
   - `yy` copy current page URL to clipboard
   - `yf` hint visible links and copy the selected link URL to clipboard
+  - `yi` hint visible images and copy the selected image URL to clipboard
+  - `yt` duplicate current tab in a new tab
+- Paste and navigate:
+  - `p` open URL from clipboard in current buffer
+  - `P` open URL from clipboard in a new tab
+- Smart Vomnibar & search:
+  - `o` open URL or search query in current buffer (auto-detects URLs vs search keywords)
+  - `O` open URL or search query in a new tab
+- Tab management:
+  - `x` close current tab (records closed tab to undo stack)
+  - `X` restore the most recently closed tab
+  - `J` / `K` switch to next / previous tab
+  - `yt` duplicate current tab in a new tab
+- Form & Mark navigation:
+  - `gi` cycle through form input fields across the page
+  - `m<a-z>` set local position mark
+  - `'<a-z>` jump to local position mark
 - Vimium-like navigation remaps (default keymap):
   - `j` scroll down, `k` scroll up
   - `h` scroll left, `l` scroll right
-  - `H` back, `L` forward
-  - `gg` go to top (implemented as a `g` prefix)
+  - `d` scroll down half page, `u` scroll up half page
+  - `H` back (previous buffer in stack), `L` forward (next buffer)
+  - `gg` go to top (first line), `G` go to bottom (last line)
+  - `?` show help panel
 
 Clipboard integration
 ---------------------
 
-Clipboard writing uses the first available tool:
+Cross-platform clipboard read/write uses the first available tool:
 
-- `wl-copy` (Wayland)
-- `xclip` (X11)
-- `xsel` (X11)
+- **macOS**: `pbcopy` / `pbpaste`
+- **Wayland (Linux)**: `wl-copy` / `wl-paste`
+- **X11 (Linux/BSD)**: `xclip` / `xsel`
+- **Windows (WSL / Cygwin)**: `clip.exe` / `putclip` / `getclip` / `powershell`
 
-You can override the command via `W3M_CLIPBOARD_CMD` (reads text from stdin),
-for example:
+You can customize clipboard commands via environment variables:
 
-    export W3M_CLIPBOARD_CMD="wl-copy"
+    export W3M_CLIPBOARD_CMD="pbcopy"          # Writes text from stdin
+    export W3M_CLIPBOARD_PASTE_CMD="pbpaste"   # Outputs text to stdout
 
-If no clipboard tool is available, yank commands will show a message.
+If no clipboard tool is available, clipboard commands will display an informative message.
 
 Build / install notes
 ---------------------
