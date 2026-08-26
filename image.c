@@ -56,15 +56,19 @@ getCharSize(void)
     set_environ("W3M_TTY", ttyname_tty());
 
     if (enable_inline_image) {
-	int ppc, ppl;
+	int ppc = 0, ppl = 0;
 
-	if (get_pixel_per_cell(&ppc,&ppl)) {
+	if (get_pixel_per_cell(&ppc, &ppl) && ppc > 0 && ppl > 0) {
 	    pixel_per_char_i = ppc ;
 	    pixel_per_line_i = ppl ;
 	    pixel_per_char = (double)ppc;
 	    pixel_per_line = (double)ppl;
 	}
 	else {
+	    if (pixel_per_char <= 0)
+		pixel_per_char = 9.0;
+	    if (pixel_per_line <= 0)
+		pixel_per_line = 18.0;
 	    pixel_per_char_i = (int)pixel_per_char;
 	    pixel_per_line_i = (int)pixel_per_line;
 	}

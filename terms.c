@@ -594,6 +594,10 @@ put_image_kitty(char *url, int x, int y, int w, int h, int sx, int sy, int sw,
 
 		if ((cbuf = getenv("W3M_KITTY_TO_PNG")))
 		    argv[i++] = cbuf;
+		else if (access("/opt/homebrew/bin/magick", X_OK) == 0)
+		    argv[i++] = "/opt/homebrew/bin/magick";
+		else if (access("/opt/homebrew/bin/convert", X_OK) == 0)
+		    argv[i++] = "/opt/homebrew/bin/convert";
 		else
 		    argv[i++] = "convert";
 
