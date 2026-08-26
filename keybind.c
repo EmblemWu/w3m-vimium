@@ -25,7 +25,7 @@ unsigned char GlobalKeymap[128] = {
     /*  @       A       B       C       D       E       F       G        */
     readsh, nulcmd, backBf, nulcmd, ldDL, editBf, hintTabL, goLineL,
     /*  H       I       J       K       L       M       N       O        */
-    backBf, followI, nextT, prevT, nextBf, extbrz, srchprv, tabOpenURL,
+    backBf, followI, nextT, prevT, nextBf, extbrz, srchprv, tabSmartURL,
     /*  P       Q       R       S       T       U       V       W        */
     tabPasteURL, quitfm, reload, svBuf, newT, goURL, ldfile, movLW,
     /*  X       Y       Z       [       \       ]       ^       _        */
@@ -33,7 +33,7 @@ unsigned char GlobalKeymap[128] = {
     /*  `       a       b       c       d       e       f       g        */
     nulcmd, svA, pgBack, curURL, hpgFore, nulcmd, hintL, vimiumG,
     /*  h       i       j       k       l       m       n       o        */
-    col1L, peekIMG, lup1, ldown1, col1R, setVimMark, srchnxt, openURL,
+    col1L, peekIMG, lup1, ldown1, col1R, setVimMark, srchnxt, smartURL,
     /*  p       q       r       s       t       u       v       w        */
     pasteURL, qquitfm, dispVer, selMn, nulcmd, hpgBack, vwSrc, movRW,
     /*  x       y       z       {       |       }       ~       DEL      */

@@ -4482,7 +4482,7 @@ smart_url_or_search(const char *input)
     return s->ptr;
 }
 
-DEFUN(openURL, OPEN_URL, "Open URL or search query in current buffer (Vimium-like)")
+DEFUN(smartURL, OPEN_URL, "Open URL or search query in current buffer (Vimium-like)")
 {
     char *input;
     char *target;
@@ -4505,7 +4505,7 @@ DEFUN(openURL, OPEN_URL, "Open URL or search query in current buffer (Vimium-lik
 	pushHashHist(URLHist, parsedURL2Str(&Currentbuf->currentURL)->ptr);
 }
 
-DEFUN(tabOpenURL, TAB_OPEN_URL, "Open URL or search query in a new tab (Vimium-like)")
+DEFUN(tabSmartURL, TAB_OPEN_URL, "Open URL or search query in a new tab (Vimium-like)")
 {
     char *input;
     char *target;
