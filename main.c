@@ -4693,7 +4693,28 @@ move_current_tab_right(void)
     disp_message("Moved tab right", TRUE);
 }
 
-DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$")
+static void
+toggle_inline_images(void)
+{
+#ifdef USE_IMAGE
+    displayImage = !displayImage;
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    disp_message(displayImage ? "Inline images: ON" : "Inline images: OFF (fast text mode)", TRUE);
+#else
+    disp_message("Image support not compiled", TRUE);
+#endif
+}
+
+static void
+toggle_reader_mode(void)
+{
+    if (Currentbuf == NULL)
+	return;
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    disp_message("Refreshed clean reader layout", TRUE);
+}
+
+DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/gz/gr")
 {
     int c;
 
@@ -4746,6 +4767,14 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$")
     }
     if (c == 'i') {
 	focus_first_input();
+	return;
+    }
+    if (c == 'z' || c == 'I') {
+	toggle_inline_images();
+	return;
+    }
+    if (c == 'r' || c == 'R') {
+	toggle_reader_mode();
 	return;
     }
     if (IS_ASCII(c))

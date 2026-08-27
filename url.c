@@ -1421,15 +1421,26 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
 	if (url_user_agent)
 	   Strcat_charp(s, url_user_agent);
 	else if (UserAgent == NULL || *UserAgent == '\0')
-            Strcat_charp(s, w3m_version);
+            Strcat_charp(s, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 w3m-vimium");
         else
             Strcat_charp(s, UserAgent);
         Strcat_charp(s, "\r\n");
     }
 
-    Strcat_m_charp(s, "Accept: ", AcceptMedia, "\r\n", NULL);
-    Strcat_m_charp(s, "Accept-Encoding: ", AcceptEncoding, "\r\n", NULL);
-    Strcat_m_charp(s, "Accept-Language: ", AcceptLang, "\r\n", NULL);
+    if (AcceptMedia && *AcceptMedia)
+	Strcat_m_charp(s, "Accept: ", AcceptMedia, "\r\n", NULL);
+    else
+	Strcat_charp(s, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n");
+
+    if (AcceptEncoding && *AcceptEncoding)
+	Strcat_m_charp(s, "Accept-Encoding: ", AcceptEncoding, "\r\n", NULL);
+    else
+	Strcat_charp(s, "Accept-Encoding: gzip, deflate\r\n");
+
+    if (AcceptLang && *AcceptLang)
+	Strcat_m_charp(s, "Accept-Language: ", AcceptLang, "\r\n", NULL);
+    else
+	Strcat_charp(s, "Accept-Language: zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7\r\n");
 
     if (target->host) {
 	Strcat_charp(s, "Host: ");
