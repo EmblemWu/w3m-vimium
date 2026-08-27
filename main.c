@@ -5015,13 +5015,237 @@ show_download_log(void)
     disp_message(Sprintf("Last download: %s", last)->ptr, TRUE);
 }
 
+static int
+is_heading_line(Line *l)
+{
+    char *p;
+    if (l == NULL || l->lineBuf == NULL || l->len == 0)
+	return 0;
+    p = l->lineBuf;
+    SKIP_BLANKS(p);
+    if (*p == '\0')
+	return 0;
+
+    /* Markdown-style headers: #, ##, ### */
+    if (*p == '#' && (*(p + 1) == ' ' || *(p + 1) == '#'))
+	return 1;
+
+    /* Numbered headings: 1. , 1.1 , [1] , I. , Chapter , Section */
+    if (IS_DIGIT(*p) && (*(p + 1) == '.' || *(p + 1) == ' ' || *(p + 1) == ')' || strncmp(p + 1, "、", 3) == 0))
+	return 1;
+    if (strncasecmp(p, "section", 7) == 0 || strncasecmp(p, "chapter", 7) == 0)
+	return 1;
+
+    /* Short title line under 60 chars with bold or underline */
+    if (l->len < 60 && l->propBuf != NULL) {
+	int i;
+	int has_bold = 0;
+	for (i = 0; i < l->len; i++) {
+	    if (l->propBuf[i] & (PE_BOLD | PE_UNDER))
+		has_bold++;
+	}
+	if (has_bold > l->len / 3)
+	    return 1;
+    }
+    return 0;
+}
+
+static void
+goto_heading(int direction)
+{
+    Line *l;
+    if (Currentbuf == NULL || Currentbuf->currentLine == NULL)
+	return;
+
+    l = (direction > 0) ? Currentbuf->currentLine->next : Currentbuf->currentLine->prev;
+    while (l != NULL) {
+	if (is_heading_line(l)) {
+	    Currentbuf->currentLine = l;
+	    Currentbuf->pos = 0;
+	    arrangeCursor(Currentbuf);
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    disp_message(Sprintf("Heading: %s", l->lineBuf)->ptr, TRUE);
+	    return;
+	}
+	l = (direction > 0) ? l->next : l->prev;
+    }
+    disp_message((direction > 0) ? "No next heading found" : "No previous heading found", TRUE);
+}
+
+typedef struct {
+    int linenumber;
+    char text[80];
+} TocItem;
+
+static void
+show_table_of_contents(void)
+{
+    Line *l;
+    TocItem toc[30];
+    int count = 0;
+    char prompt[128];
+    char *input;
+    int choice;
+
+    if (Currentbuf == NULL || Currentbuf->firstLine == NULL)
+	return;
+
+    for (l = Currentbuf->firstLine; l != NULL && count < 30; l = l->next) {
+	if (is_heading_line(l)) {
+	    char *p = l->lineBuf;
+	    SKIP_BLANKS(p);
+	    toc[count].linenumber = l->linenumber;
+	    strncpy(toc[count].text, p, sizeof(toc[count].text) - 1);
+	    toc[count].text[sizeof(toc[count].text) - 1] = '\0';
+	    count++;
+	}
+    }
+
+    if (count == 0) {
+	disp_message("No headings/sections found on this page", TRUE);
+	return;
+    }
+
+    snprintf(prompt, sizeof(prompt), "TOC Jump (1-%d, e.g. 1): ", count);
+    input = inputStr(prompt, "");
+    if (input == NULL || *input == '\0') {
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	return;
+    }
+
+    choice = atoi(input);
+    if (choice >= 1 && choice <= count) {
+	gotoLine(Currentbuf, toc[choice - 1].linenumber);
+	Currentbuf->pos = 0;
+	arrangeCursor(Currentbuf);
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	disp_message(Sprintf("Jumped to: %s", toc[choice - 1].text)->ptr, TRUE);
+    } else {
+	disp_message("Invalid TOC number", TRUE);
+    }
+}
+
+static int
+is_code_line(Line *l)
+{
+    char *p;
+    int spaces = 0;
+    if (l == NULL || l->lineBuf == NULL || l->len == 0)
+	return 0;
+    p = l->lineBuf;
+    while (*p == ' ' || *p == '\t') {
+	spaces += (*p == '\t') ? 8 : 1;
+	p++;
+    }
+    if (spaces >= 4 && *p != '\0')
+	return 1;
+    if (strncmp(p, "```", 3) == 0)
+	return 1;
+    if (strncmp(p, "$ ", 2) == 0 || (strncmp(p, "# ", 2) == 0 && (strstr(p, "sudo") || strstr(p, "npm") || strstr(p, "cargo") || strstr(p, "git") || strstr(p, "curl"))))
+	return 1;
+    return 0;
+}
+
+static void
+goto_code_block(int direction)
+{
+    Line *l;
+    if (Currentbuf == NULL || Currentbuf->currentLine == NULL)
+	return;
+
+    l = (direction > 0) ? Currentbuf->currentLine->next : Currentbuf->currentLine->prev;
+    while (l != NULL) {
+	if (is_code_line(l)) {
+	    Currentbuf->currentLine = l;
+	    Currentbuf->pos = 0;
+	    arrangeCursor(Currentbuf);
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    disp_message("Jumped to code block", TRUE);
+	    return;
+	}
+	l = (direction > 0) ? l->next : l->prev;
+    }
+    disp_message((direction > 0) ? "No next code block found" : "No previous code block found", TRUE);
+}
+
+static void
+yank_code_block(void)
+{
+    Line *cur, *start, *end, *l;
+    Str code;
+    int count = 0;
+
+    if (Currentbuf == NULL || Currentbuf->currentLine == NULL)
+	return;
+
+    cur = Currentbuf->currentLine;
+    if (!is_code_line(cur)) {
+	for (l = cur; l != NULL; l = l->next) {
+	    if (is_code_line(l)) {
+		cur = l;
+		break;
+	    }
+	}
+    }
+
+    if (!is_code_line(cur)) {
+	disp_message("No code block found near cursor", TRUE);
+	return;
+    }
+
+    start = cur;
+    while (start->prev != NULL && is_code_line(start->prev)) {
+	start = start->prev;
+    }
+
+    end = cur;
+    while (end->next != NULL && is_code_line(end->next)) {
+	end = end->next;
+    }
+
+    code = Strnew();
+    for (l = start; l != NULL; l = l->next) {
+	if (l->lineBuf) {
+	    Strcat_charp(code, l->lineBuf);
+	    Strcat_char(code, '\n');
+	    count++;
+	}
+	if (l == end)
+	    break;
+    }
+
+    if (code->length > 0) {
+	if (clipboard_write(code->ptr))
+	    disp_message(Sprintf("Yanked code block (%d lines) to clipboard", count)->ptr, TRUE);
+	else
+	    disp_message("Failed to copy code to clipboard", TRUE);
+    }
+}
+
+static void
+skip_to_main_content(void)
+{
+    Line *l;
+    if (Currentbuf == NULL || Currentbuf->firstLine == NULL)
+	return;
+
+    for (l = Currentbuf->firstLine; l != NULL; l = l->next) {
+	if (is_heading_line(l) && l->linenumber > 2) {
+	    Currentbuf->currentLine = l;
+	    Currentbuf->pos = 0;
+	    arrangeCursor(Currentbuf);
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    disp_message(Sprintf("Jumped to main content: %s", l->lineBuf)->ptr, TRUE);
+	    return;
+	}
+    }
+    disp_message("Already at main content", TRUE);
+}
+
 static void
 toggle_reader_mode(void)
 {
-    if (Currentbuf == NULL)
-	return;
-    displayBuffer(Currentbuf, B_FORCE_REDRAW);
-    disp_message("Refreshed clean reader layout", TRUE);
+    skip_to_main_content();
 }
 
 DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/gz/gr")
@@ -5084,20 +5308,27 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
 	return;
     }
     if (c == 'r' || c == 'R') {
-	toggle_reader_mode();
+	skip_to_main_content();
 	return;
     }
-    if (c == 'd') {
-	if (Currentbuf)
-	    download_url_background(parsedURL2Str(&Currentbuf->currentURL)->ptr);
+    if (c == 'h' || c == 'H') {
+	show_table_of_contents();
 	return;
     }
-    if (c == 'D') {
-	hint_mode(HINT_ACT_DOWNLOAD);
+    if (c == 'j' || c == ']') {
+	goto_heading(1);
 	return;
     }
-    if (c == 'l' || c == 'L') {
-	show_download_log();
+    if (c == 'k' || c == '[') {
+	goto_heading(-1);
+	return;
+    }
+    if (c == 'c') {
+	goto_code_block(1);
+	return;
+    }
+    if (c == 'C') {
+	goto_code_block(-1);
 	return;
     }
     if (c == 'S') {
@@ -5108,7 +5339,7 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
 	restore_session_tabs();
 	return;
     }
-    if (c == 'v' || c == 'c') {
+    if (c == 'v') {
 	caretVisualMode();
 	return;
     }
@@ -5133,6 +5364,10 @@ DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf/yi/yt/yp/ym")
     }
     if (c == 'i') {
 	hint_mode(HINT_ACT_YANK_IMG);
+	return;
+    }
+    if (c == 'c' || c == 'C') {
+	yank_code_block();
 	return;
     }
     if (c == 't') {
