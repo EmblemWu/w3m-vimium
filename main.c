@@ -4458,6 +4458,8 @@ static char *
 smart_url_or_search(const char *input)
 {
     Str s;
+    const char *p;
+    char prefix[16];
 
     if (input == NULL || *input == '\0')
 	return NULL;
@@ -4469,6 +4471,68 @@ smart_url_or_search(const char *input)
 	strncmp(input, "about:", 6) == 0 ||
 	*input == '/' || *input == '~' || *input == '.') {
 	return (char *)input;
+    }
+
+    /* Check for search engine prefix: e.g. "g query", "gh query", "w query", "b query", "z query", "yt query", "d query", "x query" */
+    p = input;
+    while (*p && *p != ' ' && *p != ':')
+	p++;
+
+    if (*p != '\0' && (p - input) < (int)sizeof(prefix)) {
+	int len = (int)(p - input);
+	const char *query = p + 1;
+	while (*query == ' ')
+	    query++;
+
+	if (*query != '\0') {
+	    strncpy(prefix, input, len);
+	    prefix[len] = '\0';
+
+	    if (strcasecmp(prefix, "g") == 0 || strcasecmp(prefix, "google") == 0) {
+		s = Strnew_charp("https://www.google.com/search?q=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "w") == 0 || strcasecmp(prefix, "wk") == 0 ||
+		strcasecmp(prefix, "wiki") == 0 || strcasecmp(prefix, "wikipedia") == 0) {
+		s = Strnew_charp("https://en.wikipedia.org/w/index.php?search=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "gh") == 0 || strcasecmp(prefix, "github") == 0) {
+		s = Strnew_charp("https://github.com/search?q=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "b") == 0 || strcasecmp(prefix, "bili") == 0 ||
+		strcasecmp(prefix, "bilibili") == 0) {
+		s = Strnew_charp("https://search.bilibili.com/all?keyword=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "z") == 0 || strcasecmp(prefix, "zh") == 0 ||
+		strcasecmp(prefix, "zhihu") == 0) {
+		s = Strnew_charp("https://www.zhihu.com/search?type=content&q=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "yt") == 0 || strcasecmp(prefix, "youtube") == 0) {
+		s = Strnew_charp("https://www.youtube.com/results?search_query=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "d") == 0 || strcasecmp(prefix, "ddg") == 0) {
+		s = Strnew_charp("https://html.duckduckgo.com/html/?q=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "x") == 0 || strcasecmp(prefix, "tw") == 0 ||
+		strcasecmp(prefix, "twitter") == 0) {
+		s = Strnew_charp("https://x.com/search?q=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	}
     }
 
     if (strchr(input, '.') != NULL && strchr(input, ' ') == NULL) {
@@ -4577,7 +4641,59 @@ DEFUN(gotoVimMark, GOTO_MARK, "Jump to local mark ('<a-z>)")
     }
 }
 
-DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi")
+static void
+move_current_tab_left(void)
+{
+    TabBuffer *prev;
+    if (nTab <= 1 || CurrentTab == NULL || CurrentTab->prevTab == NULL) {
+	disp_message("Already at first tab", TRUE);
+	return;
+    }
+    prev = CurrentTab->prevTab;
+    CurrentTab->prevTab = prev->prevTab;
+    if (prev->prevTab)
+	prev->prevTab->nextTab = CurrentTab;
+    else
+	FirstTab = CurrentTab;
+    prev->nextTab = CurrentTab->nextTab;
+    if (CurrentTab->nextTab)
+	CurrentTab->nextTab->prevTab = prev;
+    else
+	LastTab = prev;
+    CurrentTab->nextTab = prev;
+    prev->prevTab = CurrentTab;
+    calcTabPos();
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    disp_message("Moved tab left", TRUE);
+}
+
+static void
+move_current_tab_right(void)
+{
+    TabBuffer *next;
+    if (nTab <= 1 || CurrentTab == NULL || CurrentTab->nextTab == NULL) {
+	disp_message("Already at last tab", TRUE);
+	return;
+    }
+    next = CurrentTab->nextTab;
+    CurrentTab->nextTab = next->nextTab;
+    if (next->nextTab)
+	next->nextTab->prevTab = CurrentTab;
+    else
+	LastTab = CurrentTab;
+    next->prevTab = CurrentTab->prevTab;
+    if (CurrentTab->prevTab)
+	CurrentTab->prevTab->nextTab = next;
+    else
+	FirstTab = next;
+    CurrentTab->prevTab = next;
+    next->nextTab = CurrentTab;
+    calcTabPos();
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    disp_message("Moved tab right", TRUE);
+}
+
+DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$")
 {
     int c;
 
@@ -4596,6 +4712,30 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi")
 	prevT();
 	return;
     }
+    if (c == '<' || c == ',') {
+	move_current_tab_left();
+	return;
+    }
+    if (c == '>' || c == '.') {
+	move_current_tab_right();
+	return;
+    }
+    if (c == '0' || c == '^') {
+	if (FirstTab && FirstTab != CurrentTab) {
+	    CurrentTab = FirstTab;
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    disp_message("Jumped to first tab", TRUE);
+	}
+	return;
+    }
+    if (c == '$') {
+	if (LastTab && LastTab != CurrentTab) {
+	    CurrentTab = LastTab;
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    disp_message("Jumped to last tab", TRUE);
+	}
+	return;
+    }
     if (c == 'u') {
 	go_url_up(0);
 	return;
@@ -4612,7 +4752,7 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi")
 	pushEvent((int)GlobalKeymap[c], NULL);
 }
 
-DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf/yi/yt")
+DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf/yi/yt/yp/ym")
 {
     int c;
 
@@ -4633,6 +4773,29 @@ DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf/yi/yt")
     }
     if (c == 't') {
 	duplicate_current_tab();
+	return;
+    }
+    if (c == 'p' || c == 'T') {
+	if (Currentbuf && Currentbuf->buffername) {
+	    if (clipboard_write(Currentbuf->buffername))
+		disp_message(Sprintf("Copied title to clipboard: %s", Currentbuf->buffername)->ptr, TRUE);
+	    else
+		disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
+	}
+	return;
+    }
+    if (c == 'm') {
+	if (Currentbuf) {
+	    ParsedURL u;
+	    Str s;
+	    const char *title = Currentbuf->buffername ? Currentbuf->buffername : "link";
+	    parseURL2(parsedURL2Str(&Currentbuf->currentURL)->ptr, &u, baseURL(Currentbuf));
+	    s = Sprintf("[%s](%s)", title, parsedURL2Str(&u)->ptr);
+	    if (clipboard_write(s->ptr))
+		disp_message("Copied Markdown link to clipboard", TRUE);
+	    else
+		disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
+	}
 	return;
     }
     if (IS_ASCII(c))
