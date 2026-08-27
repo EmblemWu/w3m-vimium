@@ -3763,7 +3763,11 @@ typedef enum {
     HINT_ACT_TAB = 1,
     HINT_ACT_YANK = 2,
     HINT_ACT_YANK_IMG = 3,
+    HINT_ACT_DOWNLOAD = 4,
 } HintAction;
+
+static void download_url_background(const char *url);
+static void show_download_log(void);
 
 static int
 cmd_in_path(const char *cmd)
@@ -4184,7 +4188,7 @@ hint_act_on_point(const BufferPoint *pt, HintAction act)
     if (pt == NULL)
 	return;
 
-    if (act == HINT_ACT_YANK || act == HINT_ACT_YANK_IMG) {
+    if (act == HINT_ACT_YANK || act == HINT_ACT_YANK_IMG || act == HINT_ACT_DOWNLOAD) {
 	/* Yank reads the anchor from the saved point, so there is no need to
 	 * reposition the cursor (which would disturb the user's view). */
 	if (act == HINT_ACT_YANK_IMG)
@@ -4201,7 +4205,10 @@ hint_act_on_point(const BufferPoint *pt, HintAction act)
 	parseURL2(a->url, &u, baseURL(Currentbuf));
 	s = parsedURL2Str(&u);
 	displayBuffer(Currentbuf, B_FORCE_REDRAW);
-	if (clipboard_write(s->ptr))
+	if (act == HINT_ACT_DOWNLOAD) {
+	    download_url_background(s->ptr);
+	}
+	else if (clipboard_write(s->ptr))
 	    disp_message((act == HINT_ACT_YANK_IMG) ? "Copied image URL to clipboard"
 						   : "Copied link URL to clipboard", TRUE);
 	else
@@ -4245,7 +4252,8 @@ hint_mode(HintAction act)
 
 	tag = (act == HINT_ACT_TAB) ? " (tab)" :
 	      (act == HINT_ACT_YANK) ? " (yank)" :
-	      (act == HINT_ACT_YANK_IMG) ? " (yank img)" : "";
+	      (act == HINT_ACT_YANK_IMG) ? " (yank img)" :
+	      (act == HINT_ACT_DOWNLOAD) ? " (download)" : "";
 
 	displayBuffer(Currentbuf, B_FORCE_REDRAW);
 	draw_hints(items, nitem, label_len, prefix);
@@ -4936,6 +4944,78 @@ toggle_inline_images(void)
 }
 
 static void
+download_url_background(const char *url)
+{
+    const char *home = getenv("HOME");
+    char logpath[PATH_MAX];
+    char cmd[4096];
+    const char *p;
+    char fname[256];
+    FILE *lf;
+    time_t now;
+    struct tm *tm_info;
+    char timebuf[64];
+
+    if (!url || !*url || !home) return;
+
+    /* Extract clean filename from URL */
+    p = strrchr(url, '/');
+    if (p && *(p + 1)) {
+	const char *q = strchr(p + 1, '?');
+	size_t len = q ? (size_t)(q - (p + 1)) : strlen(p + 1);
+	if (len > 0 && len < sizeof(fname)) {
+	    strncpy(fname, p + 1, len);
+	    fname[len] = '\0';
+	} else {
+	    strcpy(fname, "download");
+	}
+    } else {
+	strcpy(fname, "download");
+    }
+
+    /* Spawn non-blocking background curl */
+    snprintf(cmd, sizeof(cmd), "nohup curl -sL -C - -o \"%s/Downloads/%s\" \"%s\" >/dev/null 2>&1 &",
+	     home, fname, url);
+    system(cmd);
+
+    /* Record to download log */
+    snprintf(logpath, sizeof(logpath), "%s/.w3m/downloads.log", home);
+    lf = fopen(logpath, "a");
+    if (lf) {
+	time(&now);
+	tm_info = localtime(&now);
+	strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", tm_info);
+	fprintf(lf, "%s\t%s\t%s\n", timebuf, fname, url);
+	fclose(lf);
+    }
+
+    disp_message(Sprintf("Background download started: %s -> ~/Downloads", fname)->ptr, TRUE);
+}
+
+static void
+show_download_log(void)
+{
+    const char *home = getenv("HOME");
+    char logpath[PATH_MAX];
+    FILE *lf;
+    char line[512];
+    char last[256] = "No recent downloads";
+
+    if (!home) return;
+    snprintf(logpath, sizeof(logpath), "%s/.w3m/downloads.log", home);
+    lf = fopen(logpath, "r");
+    if (lf) {
+	while (fgets(line, sizeof(line), lf)) {
+	    char *nl = strchr(line, '\n');
+	    if (nl) *nl = '\0';
+	    strncpy(last, line, sizeof(last) - 1);
+	}
+	fclose(lf);
+    }
+    disp_message(Sprintf("Last download: %s", last)->ptr, TRUE);
+}
+
+static void
 toggle_reader_mode(void)
 {
     if (Currentbuf == NULL)
@@ -5005,6 +5085,19 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
     }
     if (c == 'r' || c == 'R') {
 	toggle_reader_mode();
+	return;
+    }
+    if (c == 'd') {
+	if (Currentbuf)
+	    download_url_background(parsedURL2Str(&Currentbuf->currentURL)->ptr);
+	return;
+    }
+    if (c == 'D') {
+	hint_mode(HINT_ACT_DOWNLOAD);
+	return;
+    }
+    if (c == 'l' || c == 'L') {
+	show_download_log();
 	return;
     }
     if (c == 'S') {
