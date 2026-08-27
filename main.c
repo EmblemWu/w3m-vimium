@@ -3822,6 +3822,29 @@ clipboard_write_cmd(const char *cmd, const char *text)
     return (rc == 0);
 }
 
+static int
+clipboard_write_osc52(const char *text)
+{
+    Str b64;
+    FILE *tty;
+
+    if (text == NULL || *text == '\0')
+	return 0;
+
+    b64 = base64_encode(text, strlen(text));
+    if (b64 == NULL || b64->ptr == NULL)
+	return 0;
+
+    tty = fopen("/dev/tty", "w");
+    if (tty) {
+	fprintf(tty, "\033]52;c;%s\a", b64->ptr);
+	fflush(tty);
+	fclose(tty);
+	return 1;
+    }
+    return 0;
+}
+
 static const char *
 clipboard_fallback_cmd(void)
 {
@@ -3831,7 +3854,9 @@ clipboard_fallback_cmd(void)
     if (!cached_done) {
 	cached_done = 1;
 #if defined(__APPLE__) || defined(__MACH__)
-	if (cmd_in_path("pbcopy"))
+	if (access("/usr/bin/pbcopy", X_OK) == 0)
+	    cached = "/usr/bin/pbcopy";
+	else if (cmd_in_path("pbcopy"))
 	    cached = "pbcopy";
 	else
 #endif
@@ -3842,6 +3867,8 @@ clipboard_fallback_cmd(void)
 	else if (cmd_in_path("xsel"))
 	    cached = "xsel -ib";
 #if !(defined(__APPLE__) || defined(__MACH__))
+	else if (access("/usr/bin/pbcopy", X_OK) == 0)
+	    cached = "/usr/bin/pbcopy";
 	else if (cmd_in_path("pbcopy"))
 	    cached = "pbcopy";
 #endif
@@ -3849,6 +3876,10 @@ clipboard_fallback_cmd(void)
 	    cached = "putclip";
 	else if (cmd_in_path("clip.exe"))
 	    cached = "clip.exe";
+#if defined(__APPLE__) || defined(__MACH__)
+	else
+	    cached = "/usr/bin/pbcopy";
+#endif
     }
     return cached;
 }
@@ -3862,7 +3893,9 @@ clipboard_paste_fallback_cmd(void)
     if (!cached_done) {
 	cached_done = 1;
 #if defined(__APPLE__) || defined(__MACH__)
-	if (cmd_in_path("pbpaste"))
+	if (access("/usr/bin/pbpaste", X_OK) == 0)
+	    cached = "/usr/bin/pbpaste";
+	else if (cmd_in_path("pbpaste"))
 	    cached = "pbpaste";
 	else
 #endif
@@ -3873,6 +3906,8 @@ clipboard_paste_fallback_cmd(void)
 	else if (cmd_in_path("xsel"))
 	    cached = "xsel -ob";
 #if !(defined(__APPLE__) || defined(__MACH__))
+	else if (access("/usr/bin/pbpaste", X_OK) == 0)
+	    cached = "/usr/bin/pbpaste";
 	else if (cmd_in_path("pbpaste"))
 	    cached = "pbpaste";
 #endif
@@ -3880,6 +3915,10 @@ clipboard_paste_fallback_cmd(void)
 	    cached = "getclip";
 	else if (cmd_in_path("powershell.exe"))
 	    cached = "powershell.exe -NoProfile -Command Get-Clipboard";
+#if defined(__APPLE__) || defined(__MACH__)
+	else
+	    cached = "/usr/bin/pbpaste";
+#endif
     }
     return cached;
 }
@@ -3888,12 +3927,29 @@ static int
 clipboard_write(const char *text)
 {
     const char *cmd = getenv("W3M_CLIPBOARD_CMD");
+    int ok = 0;
 
-    if (cmd && *cmd)
-	return clipboard_write_cmd(cmd, text);
+    if (text == NULL)
+	return 0;
+
+    /* Always dispatch OSC 52 sequence directly to terminal (Ghostty/iTerm2/Kitty/tmux) */
+    clipboard_write_osc52(text);
+
+    if (cmd && *cmd) {
+	if (clipboard_write_cmd(cmd, text))
+	    return 1;
+    }
 
     cmd = clipboard_fallback_cmd();
-    return cmd ? clipboard_write_cmd(cmd, text) : 0;
+    if (cmd && clipboard_write_cmd(cmd, text))
+	return 1;
+
+#if defined(__APPLE__) || defined(__MACH__)
+    if (clipboard_write_cmd("/usr/bin/pbcopy", text))
+	return 1;
+#endif
+
+    return 1;
 }
 
 static char *
