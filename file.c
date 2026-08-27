@@ -3032,6 +3032,9 @@ flushline(struct html_feed_environ *h_env, struct readbuffer *obuf, int indent,
     obuf->prev_ctype = PC_ASCII;
     link_stack = NULL;
     fillline(obuf, indent);
+    if (h_env->envs && h_env->envc > 0 && h_env->envs[h_env->envc].env == HTML_BLQ && (obuf->flag & RB_NFLUSHED)) {
+	push_charp(obuf, 1, "\342\224\202 ", PC_ASCII);
+    }
     if (pass)
 	passthrough(obuf, pass->ptr, 0);
     if (!hidden_anchor && obuf->anchor.url) {
@@ -4890,13 +4893,13 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	x = parsedtag_exists(tag, ATTR_FOR_TABLE);
 	CLOSE_A;
 	if (!(obuf->flag & RB_IGNORE_P)) {
-	    flushline(h_env, obuf, envs[h_env->envc].indent, 0, h_env->limit);
+	    flushline(h_env, obuf, envs[h_env->envc].indent + (x ? 0 : 2), 0, h_env->limit);
 	    if (!x)
-		do_blankline(h_env, obuf, envs[h_env->envc].indent, 0,
+		do_blankline(h_env, obuf, envs[h_env->envc].indent + 2, 0,
 			     h_env->limit);
 	}
 	else
-	    fillline(obuf, envs[h_env->envc].indent);
+	    fillline(obuf, envs[h_env->envc].indent + (x ? 0 : 2));
 	obuf->flag |= (RB_PRE | RB_IGNORE_P);
 	/* istr = str; */
 	return 1;
