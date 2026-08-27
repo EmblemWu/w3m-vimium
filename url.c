@@ -409,9 +409,13 @@ openSSLHandle(int sock, char *hostname, char **p_cert)
 	option |= SSL_OP_NO_COMPRESSION;
 #endif
 	SSL_CTX_set_options(ssl_ctx, option);
+	SSL_CTX_set_session_cache_mode(ssl_ctx, SSL_SESS_CACHE_CLIENT);
 
 #ifdef SSL_MODE_RELEASE_BUFFERS
 	SSL_CTX_set_mode (ssl_ctx, SSL_MODE_RELEASE_BUFFERS);
+#endif
+#ifdef SSL_MODE_AUTO_RETRY
+	SSL_CTX_set_mode (ssl_ctx, SSL_MODE_AUTO_RETRY);
 #endif
 
 #ifdef USE_SSL_VERIFY
@@ -598,10 +602,12 @@ tune_socket(int sock)
     int on = 1;
     int rcvbuf = 131072; /* 128KB */
     int sndbuf = 65536;  /* 64KB */
+    int tos = 0x10;      /* IPTOS_LOWDELAY: low packet latency for interactive HTTP */
     if (sock < 0) return;
     setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof(on));
     setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbuf, sizeof(rcvbuf));
     setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf, sizeof(sndbuf));
+    setsockopt(sock, IPPROTO_IP, IP_TOS, (char *)&tos, sizeof(tos));
 #ifdef SO_NOSIGPIPE
     setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, (char *)&on, sizeof(on));
 #endif
