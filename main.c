@@ -3932,7 +3932,6 @@ static int
 clipboard_write(const char *text)
 {
     const char *cmd = getenv("W3M_CLIPBOARD_CMD");
-    int ok = 0;
 
     if (text == NULL)
 	return 0;
@@ -4139,23 +4138,40 @@ static void
 draw_hints(const HintItem *items, int nitem, int label_len, const char *prefix)
 {
     int i;
+    int plen = prefix ? (int)strlen(prefix) : 0;
 
     for (i = 0; i < nitem; i++) {
 	int x = items[i].x;
 	int y = items[i].y;
+	const char *lbl = items[i].label;
+	int badge_len = label_len + 2;
+	int k;
 
-	if (prefix && *prefix && !hint_prefix_match(items[i].label, prefix))
+	if (plen > 0 && !hint_prefix_match(lbl, prefix))
 	    continue;
 	if (x < 0 || y < 0 || x >= COLS || y >= LINES)
 	    continue;
 
-	if (x + label_len > COLS)
-	    x = COLS - label_len;
+	if (x + badge_len > COLS)
+	    x = COLS - badge_len;
 	if (Currentbuf && x < Currentbuf->rootX)
 	    x = Currentbuf->rootX;
 	move(y, x);
+
 	standout();
-	addstr(items[i].label);
+	addch('[');
+	standend();
+
+	if (plen > 0) {
+	    underline();
+	    for (k = 0; k < plen && lbl[k]; k++)
+		addch(TOUPPER(lbl[k]));
+	    underlineend();
+	}
+	standout();
+	for (k = plen; lbl[k]; k++)
+	    addch(TOUPPER(lbl[k]));
+	addch(']');
 	standend();
     }
 }
@@ -4251,14 +4267,14 @@ hint_mode(HintAction act)
 	int c;
 	const char *tag;
 
-	tag = (act == HINT_ACT_TAB) ? " (tab)" :
-	      (act == HINT_ACT_YANK) ? " (yank)" :
-	      (act == HINT_ACT_YANK_IMG) ? " (yank img)" :
-	      (act == HINT_ACT_DOWNLOAD) ? " (download)" : "";
+	tag = (act == HINT_ACT_TAB) ? " [New Tab]" :
+	      (act == HINT_ACT_YANK) ? " [Copy URL]" :
+	      (act == HINT_ACT_YANK_IMG) ? " [Copy Img URL]" :
+	      (act == HINT_ACT_DOWNLOAD) ? " [Download]" : " [Follow Link]";
 
 	displayBuffer(Currentbuf, B_FORCE_REDRAW);
 	draw_hints(items, nitem, label_len, prefix);
-	message(Sprintf("Hint%s: %s", tag, prefix)->ptr, 0, 0);
+	message(Sprintf("Link Hint%s: %s_ (Esc to cancel)", tag, prefix)->ptr, 0, 0);
 	refresh();
 
 	nmatch = count_hint_matches(items, nitem, prefix, &only);
