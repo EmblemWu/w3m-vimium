@@ -535,6 +535,78 @@ baseURL(Buffer *buf)
 	return &buf->currentURL;
 }
 
+#include <netinet/tcp.h>
+
+typedef struct {
+    char host[128];
+    int port;
+    struct sockaddr_storage addr;
+    socklen_t addrlen;
+    int family;
+    int socktype;
+    int protocol;
+    time_t expire;
+} FastDnsEntry;
+
+#define DNS_CACHE_MAX 64
+static FastDnsEntry fast_dns_cache[DNS_CACHE_MAX];
+static int fast_dns_count = 0;
+
+static int
+lookup_dns_cache(const char *host, int port, FastDnsEntry *out)
+{
+    int i;
+    time_t now = time(NULL);
+    if (!host) return 0;
+    for (i = 0; i < fast_dns_count; i++) {
+	if (fast_dns_cache[i].port == port &&
+	    strcmp(fast_dns_cache[i].host, host) == 0) {
+	    if (now < fast_dns_cache[i].expire) {
+		*out = fast_dns_cache[i];
+		return 1;
+	    }
+	}
+    }
+    return 0;
+}
+
+static void
+store_dns_cache(const char *host, int port, struct addrinfo *res)
+{
+    int idx;
+    if (!host || !res || res->ai_addrlen > sizeof(struct sockaddr_storage))
+	return;
+    if (fast_dns_count < DNS_CACHE_MAX) {
+	idx = fast_dns_count++;
+    } else {
+	idx = rand() % DNS_CACHE_MAX;
+    }
+    strncpy(fast_dns_cache[idx].host, host, sizeof(fast_dns_cache[idx].host) - 1);
+    fast_dns_cache[idx].host[sizeof(fast_dns_cache[idx].host) - 1] = '\0';
+    fast_dns_cache[idx].port = port;
+    memcpy(&fast_dns_cache[idx].addr, res->ai_addr, res->ai_addrlen);
+    fast_dns_cache[idx].addrlen = res->ai_addrlen;
+    fast_dns_cache[idx].family = res->ai_family;
+    fast_dns_cache[idx].socktype = res->ai_socktype;
+    fast_dns_cache[idx].protocol = res->ai_protocol;
+    fast_dns_cache[idx].expire = time(NULL) + 300; /* 5 min TTL */
+}
+
+static void
+tune_socket(int sock)
+{
+    int on = 1;
+    int rcvbuf = 131072; /* 128KB */
+    int sndbuf = 65536;  /* 64KB */
+    if (sock < 0) return;
+    setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof(on));
+    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbuf, sizeof(rcvbuf));
+    setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf, sizeof(sndbuf));
+#ifdef SO_NOSIGPIPE
+    setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, (char *)&on, sizeof(on));
+#endif
+}
+
 int
 openSocket(char *const hostname,
 	   char *remoteport_name, unsigned short remoteport_num)
@@ -578,6 +650,24 @@ openSocket(char *const hostname,
     }
 
 #ifdef INET6
+    /* Fast in-memory DNS cache lookup */
+    FastDnsEntry cached_dns;
+    int port_num = remoteport_num ? remoteport_num : 80;
+    if (remoteport_name && strcmp(remoteport_name, "https") == 0)
+	port_num = 443;
+    if (lookup_dns_cache(hostname, port_num, &cached_dns)) {
+	sock = socket(cached_dns.family, cached_dns.socktype, cached_dns.protocol);
+	if (sock >= 0) {
+	    if (connect(sock, (struct sockaddr *)&cached_dns.addr, cached_dns.addrlen) == 0) {
+		tune_socket(sock);
+		TRAP_OFF;
+		return sock;
+	    }
+	    close(sock);
+	    sock = -1;
+	}
+    }
+
     /* rfc2732 compliance */
     hname = hostname;
     if (hname != NULL && hname[0] == '[' && hname[strlen(hname) - 1] == ']') {
@@ -619,6 +709,8 @@ openSocket(char *const hostname,
 		sock = -1;
 		continue;
 	    }
+	    tune_socket(sock);
+	    store_dns_cache(hname, port_num, res);
 	    break;
 	}
 	if (sock < 0) {

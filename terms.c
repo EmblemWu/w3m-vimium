@@ -971,6 +971,9 @@ set_tty(void)
 	tty = 2;
     }
     ttyf = fdopen(tty, "w");
+    if (ttyf) {
+	setvbuf(ttyf, NULL, _IOFBF, 65536);
+    }
 #ifdef __CYGWIN__
     check_cygwin_console();
 #endif

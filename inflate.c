@@ -4,7 +4,7 @@
 #include <zlib.h>
 
 #undef BUFSIZE
-#define BUFSIZE 4096
+#define BUFSIZE 65536
 
 static char dummy_head[1 + 1] = {
     0x8 + 0x7 * 0x10,

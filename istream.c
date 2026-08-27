@@ -12,8 +12,8 @@
 
 #define	uchar		unsigned char
 
-#define STREAM_BUF_SIZE 8192
-#define SSL_BUF_SIZE	1536
+#define STREAM_BUF_SIZE 65536
+#define SSL_BUF_SIZE	32768
 
 #define MUST_BE_UPDATED(bs) ((bs)->stream.cur==(bs)->stream.next)
 
