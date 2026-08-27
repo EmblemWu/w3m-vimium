@@ -833,10 +833,35 @@ w3m_dir(const char *name, char *dft)
 {
 #ifdef USE_PATH_ENVVAR
     char *value = getenv(name);
-    return value ? value : dft;
-#else
-    return dft;
+    if (value && *value)
+	return value;
 #endif
+#if defined(__APPLE__) || defined(__MACH__)
+    {
+	struct stat st;
+	if (stat(dft, &st) != 0) {
+	    if (strcmp(name, "W3M_AUXBIN_DIR") == 0) {
+		if (stat("/opt/homebrew/libexec/w3m", &st) == 0)
+		    return "/opt/homebrew/libexec/w3m";
+		if (stat("/opt/homebrew/opt/w3m/libexec/w3m", &st) == 0)
+		    return "/opt/homebrew/opt/w3m/libexec/w3m";
+	    }
+	    else if (strcmp(name, "W3M_LIB_DIR") == 0) {
+		if (stat("/opt/homebrew/libexec/w3m/cgi-bin", &st) == 0)
+		    return "/opt/homebrew/libexec/w3m/cgi-bin";
+	    }
+	    else if (strcmp(name, "W3M_HELP_DIR") == 0) {
+		if (stat("/opt/homebrew/share/w3m", &st) == 0)
+		    return "/opt/homebrew/share/w3m";
+	    }
+	    else if (strcmp(name, "W3M_ETC_DIR") == 0 || strcmp(name, "W3M_CONF_DIR") == 0) {
+		if (stat("/opt/homebrew/etc/w3m", &st) == 0)
+		    return "/opt/homebrew/etc/w3m";
+	    }
+	}
+    }
+#endif
+    return dft;
 }
 
 char *
