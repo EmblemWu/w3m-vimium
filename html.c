@@ -277,6 +277,8 @@ TagInfo TagMAP[MAX_HTMLTAG] = {
     {"/internal", NULL, 0, TFLG_INT | TFLG_END},				/* 182 HTML_N_INTERNAL     */
     {"div_int", ALST_P, ARR_SZ(ALST_P), TFLG_INT},				/* 183 HTML_DIV_INT        */
     {"/div_int", NULL, 0, TFLG_INT | TFLG_END},					/* 184 HTML_N_DIV_INT      */
+    {"code", ALST_NOP, ARR_SZ(ALST_NOP), 0},					/* 185 HTML_CODE           */
+    {"/code", NULL, 0, TFLG_END},						/* 186 HTML_N_CODE         */
 };
 
 TagAttrInfo AttrMAP[MAX_TAGATTR] = {
