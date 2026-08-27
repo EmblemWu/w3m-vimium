@@ -1083,6 +1083,8 @@ do_effects(Lineprop m)
 static void
 do_color(Linecolor c)
 {
+    if (c == color_mode)
+	return;
     if (c & 0x8)
 	setfcolor(c & 0x7);
     else if (color_mode & 0x8)
