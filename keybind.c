@@ -35,7 +35,7 @@ unsigned char GlobalKeymap[128] = {
     /*  h       i       j       k       l       m       n       o        */
     col1L, peekIMG, lup1, ldown1, col1R, setVimMark, srchnxt, smartURL,
     /*  p       q       r       s       t       u       v       w        */
-    pasteURL, qquitfm, dispVer, selMn, nulcmd, hpgBack, vwSrc, movRW,
+    pasteURL, qquitfm, dispVer, selMn, nulcmd, hpgBack, caretVisualMode, movRW,
     /*  x       y       z       {       |       }       ~       DEL      */
     closeT, vimiumY, ctrCsrV, prevT, pipeBuf, nextT, nulcmd, nulcmd,
 };

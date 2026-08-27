@@ -4693,6 +4693,180 @@ move_current_tab_right(void)
     disp_message("Moved tab right", TRUE);
 }
 
+static char *
+extract_text_between(Buffer *buf, int line1, int pos1, int line2, int pos2)
+{
+    Str text = Strnew();
+    Line *l;
+    int cur_l;
+    int start_l, start_p, end_l, end_p;
+
+    if (buf == NULL || buf->firstLine == NULL)
+	return NULL;
+
+    if (line1 < line2 || (line1 == line2 && pos1 <= pos2)) {
+	start_l = line1; start_p = pos1;
+	end_l = line2; end_p = pos2;
+    } else {
+	start_l = line2; start_p = pos2;
+	end_l = line1; end_p = pos1;
+    }
+
+    cur_l = 1;
+    for (l = buf->firstLine; l != NULL && cur_l <= end_l; l = l->next, cur_l++) {
+	if (cur_l >= start_l) {
+	    int p1 = (cur_l == start_l) ? start_p : 0;
+	    int p2 = (cur_l == end_l) ? end_p : l->len;
+	    if (p1 < 0) p1 = 0;
+	    if (p2 > l->len) p2 = l->len;
+	    if (p2 >= p1 && l->lineBuf) {
+		Strcat_charp_n(text, &l->lineBuf[p1], p2 - p1);
+	    }
+	    if (cur_l < end_l)
+		Strcat_char(text, '\n');
+	}
+    }
+    return text->ptr;
+}
+
+DEFUN(caretVisualMode, CARET_MODE, "Enter Vimium Caret/Visual text selection mode")
+{
+    int selecting = 0;
+    int anchor_line = 0;
+    int anchor_pos = 0;
+    int c;
+
+    if (Currentbuf == NULL || Currentbuf->currentLine == NULL)
+	return;
+
+    for (;;) {
+	if (selecting)
+	    message(Sprintf("[VISUAL] (%d:%d)->(%d:%d) | h/j/k/l/w/b: move, v: cancel, y: yank, q: exit",
+			    anchor_line, anchor_pos,
+			    Currentbuf->currentLine->linenumber, Currentbuf->pos)->ptr, 0, 0);
+	else
+	    message(Sprintf("[CARET] (%d:%d) | h/j/k/l/w/b: move, v: start visual select, y: yank line, q: exit",
+			    Currentbuf->currentLine->linenumber, Currentbuf->pos)->ptr, 0, 0);
+	refresh();
+
+	c = getch();
+	if (c == ESC_CODE || c == 'q' || c == CTRL_C || c == CTRL_G) {
+	    disp_message("Exited Caret/Visual mode", TRUE);
+	    break;
+	}
+
+	if (c == 'v' || c == 'V') {
+	    if (selecting) {
+		selecting = 0;
+		disp_message("Visual selection cleared", TRUE);
+	    } else {
+		selecting = 1;
+		anchor_line = Currentbuf->currentLine->linenumber;
+		anchor_pos = Currentbuf->pos;
+		disp_message("Visual selection started (press y to yank)", TRUE);
+	    }
+	    continue;
+	}
+
+	if (c == 'y' || c == 'Y') {
+	    char *txt = NULL;
+	    if (selecting) {
+		txt = extract_text_between(Currentbuf, anchor_line, anchor_pos,
+					  Currentbuf->currentLine->linenumber, Currentbuf->pos);
+	    } else if (Currentbuf->currentLine && Currentbuf->currentLine->lineBuf) {
+		txt = Currentbuf->currentLine->lineBuf;
+	    }
+	    if (txt && *txt) {
+		if (clipboard_write(txt))
+		    disp_message(Sprintf("Yanked %d characters to clipboard", (int)strlen(txt))->ptr, TRUE);
+		else
+		    disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
+	    } else {
+		disp_message("Nothing to yank", TRUE);
+	    }
+	    break;
+	}
+
+	if (c == 'h') col1L();
+	else if (c == 'l') col1R();
+	else if (c == 'j') ldown1();
+	else if (c == 'k') lup1();
+	else if (c == 'w') movRW();
+	else if (c == 'b') movLW();
+	else if (c == '0' || c == '^') linbeg();
+	else if (c == '$') linend();
+	else if (c == 'd') hpgFore();
+	else if (c == 'u') hpgBack();
+	else if (c == 'g') goLineF();
+	else if (c == 'G') goLineL();
+
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    }
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+}
+
+static void
+save_session_tabs(void)
+{
+    TabBuffer *t;
+    FILE *f;
+    char path[PATH_MAX];
+    const char *home = getenv("HOME");
+    int count = 0;
+
+    if (!home) return;
+    snprintf(path, sizeof(path), "%s/.w3m/session_tabs.txt", home);
+    f = fopen(path, "w");
+    if (!f) return;
+
+    for (t = FirstTab; t != NULL; t = t->nextTab) {
+	if (t->currentBuffer) {
+	    char *url = parsedURL2Str(&t->currentBuffer->currentURL)->ptr;
+	    if (url && *url && strcmp(url, "about:blank") != 0) {
+		fprintf(f, "%s\t%s\n", url, t->currentBuffer->buffername ? t->currentBuffer->buffername : "");
+		count++;
+	    }
+	}
+    }
+    fclose(f);
+    disp_message(Sprintf("Saved %d tabs to session", count)->ptr, TRUE);
+}
+
+static void
+restore_session_tabs(void)
+{
+    FILE *f;
+    char path[PATH_MAX];
+    char line[4096];
+    const char *home = getenv("HOME");
+    int count = 0;
+
+    if (!home) return;
+    snprintf(path, sizeof(path), "%s/.w3m/session_tabs.txt", home);
+    f = fopen(path, "r");
+    if (!f) {
+	disp_message("No saved session found (~/.w3m/session_tabs.txt)", TRUE);
+	return;
+    }
+
+    while (fgets(line, sizeof(line), f)) {
+	char *url = line;
+	char *tab = strchr(line, '\t');
+	char *nl = strchr(line, '\n');
+	if (nl) *nl = '\0';
+	if (tab) *tab = '\0';
+	SKIP_BLANKS(url);
+	if (*url) {
+	    _newT();
+	    cmd_loadURL(url, NULL, NO_REFERER, NULL);
+	    count++;
+	}
+    }
+    fclose(f);
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    disp_message(Sprintf("Restored %d tabs from session", count)->ptr, TRUE);
+}
+
 static void
 toggle_inline_images(void)
 {
@@ -4775,6 +4949,18 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
     }
     if (c == 'r' || c == 'R') {
 	toggle_reader_mode();
+	return;
+    }
+    if (c == 'S') {
+	save_session_tabs();
+	return;
+    }
+    if (c == 'R') {
+	restore_session_tabs();
+	return;
+    }
+    if (c == 'v' || c == 'c') {
+	caretVisualMode();
 	return;
     }
     if (IS_ASCII(c))

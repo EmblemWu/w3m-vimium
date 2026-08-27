@@ -75,6 +75,7 @@ extern void setVimMark(void);
 extern void gotoVimMark(void);
 extern void vimiumG(void);
 extern void vimiumY(void);
+extern void caretVisualMode(void);
 extern void onA(void);
 
 extern void nextA(void);
