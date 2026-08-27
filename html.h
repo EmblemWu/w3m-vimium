@@ -269,8 +269,10 @@ typedef struct {
 #define HTML_N_INTERNAL     182
 #define HTML_DIV_INT        183
 #define HTML_N_DIV_INT      184
+#define HTML_CODE           185
+#define HTML_N_CODE         186
 
-#define MAX_HTMLTAG	    185
+#define MAX_HTMLTAG	    187
 
 /* Tag attribute */
 

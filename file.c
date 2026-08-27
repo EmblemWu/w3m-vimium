@@ -4567,6 +4567,16 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
     case HTML_N_STRONG:
 	HTMLlineproc1("</b>", h_env);
 	return 1;
+    case HTML_CODE:
+	if (!(obuf->flag & RB_PRE)) {
+	    HTMLlineproc1("`", h_env);
+	}
+	return 1;
+    case HTML_N_CODE:
+	if (!(obuf->flag & RB_PRE)) {
+	    HTMLlineproc1("`", h_env);
+	}
+	return 1;
     case HTML_Q:
 #ifdef USE_M17N
 #ifdef USE_UNICODE
