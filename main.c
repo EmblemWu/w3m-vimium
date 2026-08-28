@@ -2341,6 +2341,7 @@ DEFUN(ldhelp, HELP, "Show Vimium Help HUD & Cheat Sheet")
     char filter[64] = "";
     int flen = 0;
     int i, c;
+    char buf[256];
 
     for (total = 0; vimium_help_items[total].key != NULL && total < 64; total++);
 
@@ -2375,10 +2376,9 @@ DEFUN(ldhelp, HELP, "Show Vimium Help HUD & Cheat Sheet")
 	/* Header */
 	move(start_y, left_x);
 	standout();
-	char title_buf[128];
-	snprintf(title_buf, sizeof(title_buf), " [w3m-vimium Cheat Sheet & Help HUD] (%d shortcuts) ", filtered_total);
-	addstr(title_buf);
-	for (int k = strlen(title_buf); k < box_w; k++)
+	snprintf(buf, sizeof(buf), " [w3m-vimium Cheat Sheet & Help HUD] (%d shortcuts) ", filtered_total);
+	addstr(buf);
+	for (int k = strlen(buf); k < box_w; k++)
 	    addChar(' ', 0);
 	standend();
 
@@ -2393,7 +2393,9 @@ DEFUN(ldhelp, HELP, "Show Vimium Help HUD & Cheat Sheet")
 	    if (strcmp(item->category, last_cat) != 0 && flen == 0) {
 		last_cat = item->category;
 		bold();
-		addstr(Sprintf(" ── %-20s ───────────────────────────────", item->category)->ptr);
+		snprintf(buf, sizeof(buf), " -- %s ---------------------------------------", item->category);
+		buf[box_w] = '\0';
+		addstr(buf);
 		boldend();
 		clrtoeolx();
 		cur_row++;
@@ -2403,19 +2405,25 @@ DEFUN(ldhelp, HELP, "Show Vimium Help HUD & Cheat Sheet")
 	    }
 
 	    bold();
-	    addstr(Sprintf("   %-16s", item->key)->ptr);
+	    snprintf(buf, sizeof(buf), "   %-16s", item->key);
+	    addstr(buf);
 	    boldend();
-	    addstr(Sprintf(" : %s", item->desc)->ptr);
+	    snprintf(buf, sizeof(buf), " : %s", item->desc);
+	    addstr(buf);
 	    clrtoeolx();
 	}
 
 	/* Footer bar */
 	move(start_y + max_rows + 2, left_x);
 	standout();
-	if (flen > 0)
-	    addstr(Sprintf(" Filter: %-20s (j/k: scroll, d/u: page, /: filter, Esc/?: exit) ", filter)->ptr);
-	else
-	    addstr(Sprintf(" [j/k: scroll, d/u: half page, /: search filter, Esc/q/?: close] %*s", box_w - 65 > 0 ? box_w - 65 : 1, "")->ptr);
+	if (flen > 0) {
+	    snprintf(buf, sizeof(buf), " Filter: %-20s (j/k: scroll, d/u: page, /: filter, Esc/?: exit) ", filter);
+	} else {
+	    snprintf(buf, sizeof(buf), " [j/k: scroll, d/u: half page, /: search filter, Esc/q/?: close] ");
+	}
+	addstr(buf);
+	for (int k = strlen(buf); k < box_w; k++)
+	    addChar(' ', 0);
 	standend();
 
 	move(LINES - 1, 0);
