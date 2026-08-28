@@ -6064,6 +6064,74 @@ DEFUN(toggleReaderMode, TOGGLE_READER_MODE, "Toggle reader mode / jump to main a
     toggle_reader_mode();
 }
 
+static void
+edit_current_form_external(void)
+{
+    Anchor *a;
+    FormItemList *fi;
+    char *tmpf;
+    FILE *f;
+    Str tmp;
+
+    if (Currentbuf == NULL || Currentbuf->formitem == NULL) {
+	disp_message("No form item on this page", TRUE);
+	return;
+    }
+
+    a = retrieveCurrentForm(Currentbuf);
+    if (a == NULL) {
+	disp_message("Cursor is not on a form field", TRUE);
+	return;
+    }
+
+    fi = (FormItemList *)a->url;
+    if (fi == NULL)
+	return;
+
+    if (fi->readonly) {
+	disp_message("Read only field!", TRUE);
+	return;
+    }
+
+    tmpf = tmpfname(TMPF_DFL, NULL)->ptr;
+    f = fopen(tmpf, "w");
+    if (f == NULL) {
+	disp_message("Can't open temporary file", TRUE);
+	return;
+    }
+    if (fi->value && fi->value->ptr)
+	fputs(fi->value->ptr, f);
+    fclose(f);
+
+    if (exec_cmd(myEditor(Editor, tmpf, 1)->ptr) == 0) {
+	f = fopen(tmpf, "r");
+	if (f) {
+	    fi->value = Strnew();
+	    while ((tmp = Strfgets(f)), tmp->length > 0) {
+		if (fi->type == FORM_INPUT_TEXT) {
+		    while (tmp->length > 0 && (tmp->ptr[tmp->length - 1] == '\n' || tmp->ptr[tmp->length - 1] == '\r'))
+			Strshrink(tmp, 1);
+		    Strcat(fi->value, tmp);
+		    break;
+		} else {
+		    if (tmp->length == 1 && tmp->ptr[tmp->length - 1] == '\n') {
+			tmp = Strnew_charp("\r\n");
+		    } else if (tmp->length > 1 && tmp->ptr[tmp->length - 1] == '\n' && tmp->ptr[tmp->length - 2] != '\r') {
+			Strshrink(tmp, 1);
+			Strcat_charp(tmp, "\r\n");
+		    }
+		    Strcat(fi->value, tmp);
+		}
+	    }
+	    fclose(f);
+	    formUpdateBuffer(a, Currentbuf, fi);
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    disp_message("Updated form field from external editor", TRUE);
+	}
+    }
+    unlink(tmpf);
+}
+
 DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/gz/gr")
 {
     int c;
@@ -6147,12 +6215,20 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
 	goto_code_block(-1);
 	return;
     }
+    if (c == 'l') {
+	linkLst();
+	return;
+    }
+    if (c == 'L') {
+	linkMn();
+	return;
+    }
     if (c == 'e') {
-	editCurrentURL();
+	edit_current_form_external();
 	return;
     }
     if (c == 'E') {
-	tabEditCurrentURL();
+	editCurrentURL();
 	return;
     }
     if (c == 'x') {
