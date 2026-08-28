@@ -1533,19 +1533,40 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
     }
 
     if (!(target->host && (strcasestr(target->host, "duckduckgo.com")))) {
-	/* Modern browser client hints & fetch metadata to bypass CDN WAFs */
+	/* Modern browser client hints */
 	Strcat_charp(s, "sec-ch-ua: \"Not(A:Brand\";v=\"99\", \"Google Chrome\";v=\"133\", \"Chromium\";v=\"133\"\r\n");
 	Strcat_charp(s, "sec-ch-ua-mobile: ?0\r\n");
 	Strcat_charp(s, "sec-ch-ua-platform: \"macOS\"\r\n");
-	Strcat_charp(s, "Sec-Fetch-Site: cross-site\r\n");
-	Strcat_charp(s, "Sec-Fetch-Mode: no-cors\r\n");
-	Strcat_charp(s, "Sec-Fetch-Dest: image\r\n");
-    }
 
-    if (AcceptMedia && *AcceptMedia)
-	Strcat_m_charp(s, "Accept: ", AcceptMedia, "\r\n", NULL);
-    else
-	Strcat_charp(s, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8\r\n");
+	if (image_source) {
+	    /* Image asset subresource request */
+	    Strcat_charp(s, "Sec-Fetch-Site: cross-site\r\n");
+	    Strcat_charp(s, "Sec-Fetch-Mode: no-cors\r\n");
+	    Strcat_charp(s, "Sec-Fetch-Dest: image\r\n");
+	    if (AcceptMedia && *AcceptMedia)
+		Strcat_m_charp(s, "Accept: ", AcceptMedia, "\r\n", NULL);
+	    else
+		Strcat_charp(s, "Accept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8\r\n");
+	}
+	else {
+	    /* Top-level HTML document navigation */
+	    Strcat_charp(s, "Upgrade-Insecure-Requests: 1\r\n");
+	    Strcat_charp(s, "Sec-Fetch-Site: none\r\n");
+	    Strcat_charp(s, "Sec-Fetch-Mode: navigate\r\n");
+	    Strcat_charp(s, "Sec-Fetch-User: ?1\r\n");
+	    Strcat_charp(s, "Sec-Fetch-Dest: document\r\n");
+	    if (AcceptMedia && *AcceptMedia)
+		Strcat_m_charp(s, "Accept: ", AcceptMedia, "\r\n", NULL);
+	    else
+		Strcat_charp(s, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\n");
+	}
+    }
+    else {
+	if (AcceptMedia && *AcceptMedia)
+	    Strcat_m_charp(s, "Accept: ", AcceptMedia, "\r\n", NULL);
+	else
+	    Strcat_charp(s, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n");
+    }
 
     if (AcceptEncoding && *AcceptEncoding)
 	Strcat_m_charp(s, "Accept-Encoding: ", AcceptEncoding, "\r\n", NULL);
