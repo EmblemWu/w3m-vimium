@@ -5719,6 +5719,11 @@ show_download_log(void)
     disp_message(Sprintf("Last download: %s", last)->ptr, TRUE);
 }
 
+DEFUN(showDownloadLog, SHOW_DOWNLOAD_LOG, "Show recent background downloads log")
+{
+    show_download_log();
+}
+
 static int
 is_heading_line(Line *l)
 {
@@ -6015,6 +6020,11 @@ static void
 toggle_reader_mode(void)
 {
     skip_to_main_content();
+}
+
+DEFUN(toggleReaderMode, TOGGLE_READER_MODE, "Toggle reader mode / jump to main article")
+{
+    toggle_reader_mode();
 }
 
 DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/gz/gr")

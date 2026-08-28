@@ -713,7 +713,6 @@ int
 getImageSize(ImageCache * cache)
 {
     Str tmp;
-    FILE *f;
     unsigned int w = 0, h = 0;
 
     if (!activeImage)

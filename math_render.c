@@ -204,14 +204,28 @@ static char *extract_braced(const char **p_ptr)
 
 static void render_math_internal(const char *src, Str out);
 
+/* Append binary relation / operator with normalized spacing */
+static void append_relation(Str out, const char *sym)
+{
+    if (out->length > 0 && out->ptr[out->length - 1] != ' ' &&
+	out->ptr[out->length - 1] != '(' && out->ptr[out->length - 1] != '{' &&
+	out->ptr[out->length - 1] != '[') {
+	Strcat_char(out, ' ');
+    }
+    Strcat_charp(out, sym);
+    Strcat_char(out, ' ');
+}
+
 /* Convert intermediate string to Unicode subscripts */
 static void append_as_subscript(const char *s, Str out)
 {
     const char *p = s;
     while (*p) {
-        /* Check if it's already a UTF-8 multi-byte symbol like ≤ or ∈ */
+        if (isspace((unsigned char)*p)) {
+            p++;
+            continue;
+        }
         if ((unsigned char)*p >= 0x80) {
-            /* Multi-byte sequence: copy directly */
             int len = 1;
             if (((unsigned char)*p & 0xE0) == 0xC0) len = 2;
             else if (((unsigned char)*p & 0xF0) == 0xE0) len = 3;
@@ -237,6 +251,10 @@ static void append_as_superscript(const char *s, Str out)
 {
     const char *p = s;
     while (*p) {
+        if (isspace((unsigned char)*p)) {
+            p++;
+            continue;
+        }
         if ((unsigned char)*p >= 0x80) {
             int len = 1;
             if (((unsigned char)*p & 0xE0) == 0xC0) len = 2;
@@ -297,17 +315,20 @@ static void render_math_internal(const char *src, Str out)
 
 	    /* Spacing macros */
 	    if (p[1] == ',' || p[1] == ';' || p[1] == '!' || p[1] == ' ') {
-		Strcat_char(out, ' ');
+		if (out->length > 0 && out->ptr[out->length - 1] != ' ')
+		    Strcat_char(out, ' ');
 		p += 2;
 		continue;
 	    }
 	    if (strncmp(p, "\\quad", 5) == 0) {
-		Strcat_charp(out, "  ");
+		if (out->length > 0 && out->ptr[out->length - 1] != ' ')
+		    Strcat_charp(out, "  ");
 		p += 5;
 		continue;
 	    }
 	    if (strncmp(p, "\\qquad", 6) == 0) {
-		Strcat_charp(out, "   ");
+		if (out->length > 0 && out->ptr[out->length - 1] != ' ')
+		    Strcat_charp(out, "   ");
 		p += 6;
 		continue;
 	    }
@@ -432,7 +453,6 @@ static void render_math_internal(const char *src, Str out)
 		int tlen = strlen(op_symbols[i].tex);
 		if (strncmp(p, op_symbols[i].tex, tlen) == 0 &&
 		    (!isalpha((unsigned char)p[tlen]))) {
-		    /* Add space around binary relations */
 		    if (strcmp(op_symbols[i].utf8, "≥") == 0 ||
 			strcmp(op_symbols[i].utf8, "≤") == 0 ||
 			strcmp(op_symbols[i].utf8, "≠") == 0 ||
@@ -441,14 +461,9 @@ static void render_math_internal(const char *src, Str out)
 			strcmp(op_symbols[i].utf8, "∈") == 0 ||
 			strcmp(op_symbols[i].utf8, "∉") == 0 ||
 			strcmp(op_symbols[i].utf8, "→") == 0 ||
-			strcmp(op_symbols[i].utf8, "⇒") == 0) {
-			Strcat_char(out, ' ');
-			Strcat_charp(out, op_symbols[i].utf8);
-			Strcat_char(out, ' ');
-		    } else if (strcmp(op_symbols[i].utf8, "|") == 0) {
-			Strcat_char(out, ' ');
-			Strcat_charp(out, "|");
-			Strcat_char(out, ' ');
+			strcmp(op_symbols[i].utf8, "⇒") == 0 ||
+			strcmp(op_symbols[i].utf8, "|") == 0) {
+			append_relation(out, op_symbols[i].utf8);
 		    } else {
 			Strcat_charp(out, op_symbols[i].utf8);
 		    }
@@ -501,6 +516,21 @@ static void render_math_internal(const char *src, Str out)
 		append_as_superscript(single, out);
 		p++;
 	    }
+	    continue;
+	}
+
+	/* Equal sign spacing */
+	if (*p == '=') {
+	    append_relation(out, "=");
+	    p++;
+	    continue;
+	}
+
+	/* Deduplicate consecutive spaces */
+	if (isspace((unsigned char)*p)) {
+	    if (out->length > 0 && out->ptr[out->length - 1] != ' ')
+		Strcat_char(out, ' ');
+	    p++;
 	    continue;
 	}
 

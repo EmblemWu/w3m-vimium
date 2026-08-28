@@ -316,6 +316,8 @@ extern TabBuffer *deleteTab(TabBuffer * tab);
 extern void addDownloadList(pid_t pid, char *url, char *save, char *lock,
 			    clen_t size);
 extern void stopDownload(void);
+extern void showDownloadLog(void);
+extern void toggleReaderMode(void);
 extern int checkDownloadList(void);
 extern void download_action(struct parsed_tagarg *arg);
 extern Buffer *newBuffer(int width);
