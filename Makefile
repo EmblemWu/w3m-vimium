@@ -1,37 +1,37 @@
 #
 # Makefile
-# @configure_input@
+# Makefile.  Generated from Makefile.in by configure.
 #
-@SET_MAKE@
-SHELL=@SHELL@
-PACKAGE = @PACKAGE@
-VERSION = @VERSION@
+
+SHELL=/bin/sh
+PACKAGE = w3m
+VERSION = 0.5.3
 DOMAIN = $(PACKAGE)
-prefix = @prefix@
-exec_prefix = @exec_prefix@
-datarootdir = @datarootdir@
-bindir = @bindir@
-datadir = @datadir@
+prefix = /opt/homebrew
+exec_prefix = ${prefix}
+datarootdir = ${prefix}/share
+bindir = ${exec_prefix}/bin
+datadir = ${datarootdir}
 localedir = $(datadir)/locale
-libdir = @libdir@
-includedir = @includedir@
-infodir = @infodir@
-libexecdir = @libexecdir@
-localstatedir = @localstatedir@
-mandir = @mandir@
-oldincludedir = @oldincludedir@
-sbindir = @sbindir@
-sharedstatedir = @sharedstatedir@
-srcdir = @srcdir@
-sysconfdir = @sysconfdir@
-top_srcdir = @top_srcdir@
+libdir = ${exec_prefix}/lib
+includedir = ${prefix}/include
+infodir = ${datarootdir}/info
+libexecdir = ${exec_prefix}/libexec
+localstatedir = ${prefix}/var
+mandir = ${datarootdir}/man
+oldincludedir = /usr/include
+sbindir = ${exec_prefix}/sbin
+sharedstatedir = ${prefix}/com
+srcdir = .
+sysconfdir = ${prefix}/etc
+top_srcdir = .
 top_builddir = .
 VPATH = $(top_srcdir):.
 
 CGIBIN_DIR = $(libexecdir)/$(PACKAGE)/cgi-bin
 AUXBIN_DIR = $(libexecdir)/$(PACKAGE)
-HELP_DIR = @HELP_DIR@
-RC_DIR = @RC_DIR@
+HELP_DIR = ${datarootdir}/w3m
+RC_DIR = ~/.w3m
 ETC_DIR = $(sysconfdir)
 CONF_DIR = $(sysconfdir)/$(PACKAGE)
 
@@ -39,21 +39,21 @@ WARNINGS= -Wall -Wnull-dereference
 # GCC 15+ may default to C23, where empty parameter lists mean "no args".
 # w3m/libwc relies on pre-C23 semantics in a few places, so default to GNU17
 # unless the user overrides via their own -std=... in CFLAGS.
-CFLAGS = $(WARNINGS) -I. -I$(top_srcdir) -std=gnu17 @CFLAGS@ $(CPPFLAGS) $(DEFS) $(OPTS)
-WCCFLAGS = @WCCFLAGS@
-CPPFLAGS = @CPPFLAGS@
-DEFS = @DEFS@ -DAUXBIN_DIR=\"$(AUXBIN_DIR)\" \
+CFLAGS = $(WARNINGS) -I. -I$(top_srcdir) -std=gnu17 -g -O2 -I$(srcdir)/libwc -I/opt/homebrew/Cellar/openssl@3/3.6.3/include -I/opt/homebrew/include $(CPPFLAGS) $(DEFS) $(OPTS)
+WCCFLAGS = -DUSE_UNICODE -I$(srcdir) -I$(srcdir)/..
+CPPFLAGS =  -I/opt/homebrew/include
+DEFS = -DHAVE_CONFIG_H -DAUXBIN_DIR=\"$(AUXBIN_DIR)\" \
 	-DCGIBIN_DIR=\"$(CGIBIN_DIR)\" -DHELP_DIR=\"$(HELP_DIR)\" \
 	-DETC_DIR=\"$(ETC_DIR)\" -DCONF_DIR=\"$(CONF_DIR)\" \
 	-DRC_DIR=\"$(RC_DIR)\" \
         -DLOCALEDIR=\"$(localedir)\"
-LDFLAGS = @LDFLAGS@
-LIBS = -framework ImageIO -framework CoreGraphics -framework CoreFoundation -framework Cocoa @LIBS@
-GC_LIBS = @LIBGC@
-EXT_LIBS = -L. -lindep @LIBINTL@ $(GC_LIBS)
-W3M_LIBS = @W3M_LIBS@
-WCTARGET = @WCTARGET@
-NLSTARGET = @NLSTARGET@
+LDFLAGS =  -L/opt/homebrew/lib
+LIBS = -framework ImageIO -framework CoreGraphics -framework CoreFoundation -framework Cocoa
+GC_LIBS = -L/opt/homebrew/lib -lgc
+EXT_LIBS = -L. -lindep  $(GC_LIBS)
+W3M_LIBS =  -L./libwc -lwc -L/opt/homebrew/Cellar/openssl@3/3.6.3/lib -lssl -lcrypto -lssl -lcrypto -ltermcap
+WCTARGET = libwc/libwc.a
+NLSTARGET = 
 
 MAKE_ARGS = PERL='$(PERL)' MKDIR='$(MKDIR)' \
 	BIN_DIR='$(bindir)' AUXBIN_DIR='$(AUXBIN_DIR)' \
@@ -62,33 +62,33 @@ MAKE_ARGS = PERL='$(PERL)' MKDIR='$(MKDIR)' \
 	CONF_DIR='$(CONF_DIR)' \
 	RC_DIR='$(RC_DIR)' DESTDIR='$(DESTDIR)' KEYBIND_SRC='$(KEYBIND_SRC)'
 
-IMGCFLAGS = @IMGX11CFLAGS@ @IMGFBCFLAGS@ @IMGWINCFLAGS@
-IMGLDFLAGS = @IMGX11LDFLAGS@ @IMGFBLDFLAGS@ @IMGWINLDFLAGS@
+IMGCFLAGS =   
+IMGLDFLAGS = -lX11   
 
-CC0 = @CC@
-CXX = @CXX@
-IMGLINK = @IMGLINK@
-CC = @POSUBST@ $(CC0)
-CPP = @CPP@
-RANLIB=@RANLIB@
-AWK = @AWK@
-PERL = @PERL@
+CC0 = gcc
+CXX = g++
+IMGLINK = $(CC)
+CC =  $(CC0)
+CPP = gcc -E
+RANLIB=ranlib
+AWK = awk
+PERL = /usr/bin/perl
 MKDIR=mkdir -p
 MV=mv
 RM=rm
 AR=ar
-INSTALL=@INSTALL@
-INSTALL_PROGRAM=@INSTALL_PROGRAM@
-INSTALL_SCRIPT=@INSTALL_SCRIPT@
-INSTALL_DATA=@INSTALL_DATA@
-INSTALL_W3MIMGDISPLAY=@INSTALL_W3MIMGDISPLAY@
+INSTALL=/opt/homebrew/bin/ginstall -c
+INSTALL_PROGRAM=${INSTALL}
+INSTALL_SCRIPT=${INSTALL}
+INSTALL_DATA=${INSTALL} -m 644
+INSTALL_W3MIMGDISPLAY=${INSTALL_PROGRAM}
 
-HELP_FILE = @HELP_FILE@
-KEYBIND_SRC = @KEYMAP_FILE@.c
-KEYBIND_OBJ = @KEYMAP_FILE@.o
+HELP_FILE = w3mhelp-w3m_en.html
+KEYBIND_SRC = keybind.c
+KEYBIND_OBJ = keybind.o
 
-VERSION=@CURRENT_VERSION@
-MODEL=@W3M_TARGET@-@W3M_LANG@
+VERSION=0.5.3+git20230718
+MODEL=-EN
 
 SRCS=main.c file.c buffer.c display.c etc.c search.c linein.c table.c local.c \
 	form.c map.c frame.c rc.c menu.c mailcap.c image.c \
@@ -105,7 +105,7 @@ ALIBOBJS=Str.o indep.o regex.o textlist.o parsetag.o myctype.o hash.o
 ALIB=libindep.a
 ALLOBJS=$(OBJS) $(LOBJS) $(LLOBJS)
 
-EXT=@EXEEXT@
+EXT=
 
 TARGET=$(PACKAGE)$(EXT)
 BOOKMARKER=w3mbookmark$(EXT)
@@ -118,7 +118,7 @@ MAN1_JA=$(top_srcdir)/doc-jp/w3m.1
 MAN1_DE=$(top_srcdir)/doc-de/w3m.1
 
 LIB_TARGETS=$(BOOKMARKER) $(HELPER)
-AUXBIN_TARGETS=@AUXBIN_TARGETS@
+AUXBIN_TARGETS= inflate$(EXT)
 TARGETS=$(TARGET) $(LIB_TARGETS) $(AUXBIN_TARGETS)
 HELP_TARGET=w3mhelp.html
 HELP_ALLFILES=w3mhelp-w3m_en.html w3mhelp-w3m_ja.html \

@@ -1,6 +1,7 @@
 /* $Id: image.c,v 1.37 2010/12/21 10:13:55 htrb Exp $ */
 
 #include "fm.h"
+#include "modern_image.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <signal.h>
@@ -38,8 +39,16 @@ static int getCharSize(void);
 void
 initImage()
 {
+    int proto;
     if (activeImage)
 	return;
+
+    if (!enable_inline_image) {
+	proto = modern_detect_graphics_proto();
+	if (proto != MODERN_GRAPHICS_NONE)
+	    enable_inline_image = proto;
+    }
+
     if (getCharSize())
 	activeImage = TRUE;
 }
@@ -115,6 +124,11 @@ static int
 openImgdisplay()
 {
     char *cmd;
+
+    if (enable_inline_image) {
+	activeImage = TRUE;
+	return TRUE;
+    }
 
     if (!strchr(Imgdisplay, '/'))
 	cmd = Strnew_m_charp(w3m_auxbin_dir(), "/", Imgdisplay, NULL)->ptr;
@@ -222,7 +236,9 @@ drawImage(void)
 	    if (!i->cache->touch || stat(i->cache->file,&st))
 	      return;
 
-	    char *url = i->cache->file;
+	    char *url = modern_ensure_renderable_image(i->cache->file);
+	    if (!url)
+		url = i->cache->file;
 
 	    int x = i->x / pixel_per_char_i;
 	    int y = i->y / pixel_per_line_i;
@@ -734,6 +750,9 @@ getImageSize(ImageCache * cache)
 	return FALSE;
 
     if (parseImageHeader(cache->file, &w, &h))
+	goto got_image_size;
+
+    if (modern_get_image_size(cache->file, &w, &h))
 	goto got_image_size;
 
     tmp = Strnew();
