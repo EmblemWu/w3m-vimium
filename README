@@ -26,9 +26,14 @@ Added features
   - `F` hint visible links and open in a new tab
 - Yank / copy (`y` prefix):
   - `yy` copy current page URL to clipboard
+  - `ya` copy all hyperlink URLs on current page to clipboard (line-separated list)
+  - `yA` / `yM` copy all hyperlink URLs on current page as a Markdown link list (`- [Title](URL)`)
   - `yf` hint visible links and copy the selected link URL to clipboard
   - `yi` hint visible images and copy the selected image URL to clipboard
+  - `yc` / `yC` yank current or nearest code block directly to clipboard
   - `yt` duplicate current tab in a new tab
+  - `yp` / `yT` copy current page title to clipboard
+  - `ym` copy current page as Markdown link (`[Title](URL)`)
 - Paste and navigate:
   - `p` open URL from clipboard in current buffer
   - `P` open URL from clipboard in a new tab

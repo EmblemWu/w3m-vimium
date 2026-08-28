@@ -5704,6 +5704,71 @@ yank_code_block(void)
 }
 
 static void
+yank_all_links(int markdown_format)
+{
+    AnchorList *al;
+    Anchor *a;
+    ParsedURL pu;
+    Str out;
+    int i, count = 0;
+
+    if (Currentbuf == NULL || Currentbuf->href == NULL || Currentbuf->href->nanchor <= 0) {
+	disp_message("No hyperlinks found in current page", TRUE);
+	return;
+    }
+
+    al = Currentbuf->href;
+    out = Strnew();
+
+    for (i = 0; i < al->nanchor; i++) {
+	char *u_str, *text;
+	a = &al->anchors[i];
+	if (a->hseq < 0 || a->slave || a->url == NULL || *a->url == '\0')
+	    continue;
+
+	parseURL2(a->url, &pu, baseURL(Currentbuf));
+	u_str = parsedURL2Str(&pu)->ptr;
+	if (u_str == NULL || *u_str == '\0')
+	    continue;
+
+	if (markdown_format) {
+	    text = getAnchorText(Currentbuf, al, a);
+	    if (text == NULL || *text == '\0')
+		text = u_str;
+	    Strcat_char(out, '-');
+	    Strcat_char(out, ' ');
+	    Strcat_char(out, '[');
+	    Strcat_charp(out, text);
+	    Strcat_char(out, ']');
+	    Strcat_char(out, '(');
+	    Strcat_charp(out, u_str);
+	    Strcat_char(out, ')');
+	    Strcat_char(out, '\n');
+	}
+	else {
+	    Strcat_charp(out, u_str);
+	    Strcat_char(out, '\n');
+	}
+	count++;
+    }
+
+    if (count == 0) {
+	disp_message("No valid links extracted", TRUE);
+	return;
+    }
+
+    if (clipboard_write(out->ptr)) {
+	if (markdown_format)
+	    disp_message(Sprintf("Yanked %d links (Markdown list) to clipboard", count)->ptr, TRUE);
+	else
+	    disp_message(Sprintf("Yanked %d link URLs to clipboard", count)->ptr, TRUE);
+    }
+    else {
+	disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
+    }
+}
+
+static void
 skip_to_main_content(void)
 {
     Line *l;
@@ -5852,7 +5917,7 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
 	pushEvent((int)GlobalKeymap[c], NULL);
 }
 
-DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf/yi/yt/yp/ym")
+DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf/yi/yt/yp/ym/ya/yA")
 {
     int c;
 
@@ -5861,6 +5926,14 @@ DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf/yi/yt/yp/ym")
 	return;
     if (c == 'y') {
 	yank_current_url();
+	return;
+    }
+    if (c == 'a') {
+	yank_all_links(0);
+	return;
+    }
+    if (c == 'A' || c == 'M') {
+	yank_all_links(1);
 	return;
     }
     if (c == 'f') {
