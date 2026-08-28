@@ -3410,7 +3410,7 @@ process_img(struct parsed_tag *tag, int width)
 			    cur_hseq++, cur_form_id));
     }
 #ifdef USE_IMAGE
-    if (use_image) {
+    if (use_image && enable_inline_image) {
 	w0 = w;
 	i0 = i;
 	if (w < 0 || i < 0) {
@@ -3468,7 +3468,7 @@ process_img(struct parsed_tag *tag, int width)
 	Strcat_charp(tmp, "\"");
     }
 #ifdef USE_IMAGE
-    if (use_image) {
+    if (use_image && enable_inline_image) {
 	if (w0 >= 0)
 	    Strcat(tmp, Sprintf(" width=%d", w0));
 	if (i0 >= 0)
