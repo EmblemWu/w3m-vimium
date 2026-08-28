@@ -5145,6 +5145,71 @@ extract_visual_marked_text(Buffer *buf)
     return text->ptr;
 }
 
+DEFUN(caretMode, CARET, "Enter Vimium Caret navigation mode")
+{
+    int c;
+
+    if (Currentbuf == NULL || Currentbuf->currentLine == NULL)
+	return;
+
+    VisualCursorActive = 1;
+
+    for (;;) {
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	message(Sprintf("-- CARET -- [h/j/k/l/w/b: move cursor, v: select, V: line select, y: yank line, Esc: exit] (%ld:%d)",
+			Currentbuf->currentLine->linenumber, Currentbuf->pos)->ptr,
+		Currentbuf->cursorX + Currentbuf->rootX,
+		Currentbuf->cursorY + Currentbuf->rootY);
+	term_cursor_show();
+	refresh();
+
+	c = getch();
+
+	if (c == ESC_CODE || c == 'q' || c == CTRL_C || c == CTRL_G) {
+	    VisualCursorActive = 0;
+	    term_cursor_hide();
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    disp_message("[Caret] Exited", TRUE);
+	    break;
+	}
+
+	if (c == 'v' || c == 'V') {
+	    caretVisualMode();
+	    break;
+	}
+
+	if (c == 'y' || c == 'Y') {
+	    if (Currentbuf->currentLine && Currentbuf->currentLine->lineBuf) {
+		clipboard_write(Currentbuf->currentLine->lineBuf);
+		disp_message(Sprintf("[Caret] Yanked line %ld to clipboard", Currentbuf->currentLine->linenumber)->ptr, TRUE);
+	    }
+	    VisualCursorActive = 0;
+	    term_cursor_hide();
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    break;
+	}
+
+	if (c == 'h' || c == 0x02) cursorLeft(Currentbuf, 1);
+	else if (c == 'l' || c == 0x06) cursorRight(Currentbuf, 1);
+	else if (c == 'j' || c == 0x0e) cursorDown(Currentbuf, 1);
+	else if (c == 'k' || c == 0x10) cursorUp(Currentbuf, 1);
+	else if (c == 'w') movRW();
+	else if (c == 'b') movLW();
+	else if (c == '0' || c == '^') linbeg();
+	else if (c == '$') linend();
+	else if (c == 'G') goLineL();
+	else if (c == 'g') {
+	    int c2 = getch();
+	    if (c2 == 'g')
+		goLineF();
+	}
+	else if (c == 0x04) col1R();
+	else if (c == 0x15) col1L();
+	else if (c == 0x06) pgFore();
+	else if (c == 0x02) pgBack();
+    }
+}
+
 DEFUN(caretVisualMode, CARET_MODE, "Enter Vimium Caret/Visual text selection mode")
 {
     int selecting = 1; /* 1: Visual char mode (v), 2: Visual line mode (V) */
@@ -5155,6 +5220,7 @@ DEFUN(caretVisualMode, CARET_MODE, "Enter Vimium Caret/Visual text selection mod
     if (Currentbuf == NULL || Currentbuf->currentLine == NULL)
 	return;
 
+    VisualCursorActive = 1;
     use_mark = 1;
     anchor_line = Currentbuf->currentLine;
     anchor_pos = Currentbuf->pos;
@@ -5168,14 +5234,21 @@ DEFUN(caretVisualMode, CARET_MODE, "Enter Vimium Caret/Visual text selection mod
 	if (selecting == 1)
 	    message(Sprintf("-- VISUAL -- [h/j/k/l/w/b: move, o: swap anchor, y: yank, V: line mode, Esc: exit] (%ld:%d)->(%ld:%d)",
 			    anchor_line ? anchor_line->linenumber : 1, anchor_pos,
-			    Currentbuf->currentLine->linenumber, Currentbuf->pos)->ptr, 0, 0);
+			    Currentbuf->currentLine->linenumber, Currentbuf->pos)->ptr,
+		    Currentbuf->cursorX + Currentbuf->rootX,
+		    Currentbuf->cursorY + Currentbuf->rootY);
 	else if (selecting == 2)
 	    message(Sprintf("-- VISUAL LINE -- [j/k: expand lines, o: swap anchor, y: yank, v: char mode, Esc: exit] lines %ld-%ld",
 			    (anchor_line ? anchor_line->linenumber : 1) <= Currentbuf->currentLine->linenumber ? (anchor_line ? anchor_line->linenumber : 1) : Currentbuf->currentLine->linenumber,
-			    (anchor_line ? anchor_line->linenumber : 1) <= Currentbuf->currentLine->linenumber ? Currentbuf->currentLine->linenumber : (anchor_line ? anchor_line->linenumber : 1))->ptr, 0, 0);
+			    (anchor_line ? anchor_line->linenumber : 1) <= Currentbuf->currentLine->linenumber ? Currentbuf->currentLine->linenumber : (anchor_line ? anchor_line->linenumber : 1))->ptr,
+		    Currentbuf->cursorX + Currentbuf->rootX,
+		    Currentbuf->cursorY + Currentbuf->rootY);
 	else
-	    message("-- CARET -- [h/j/k/l: move, v: select, V: line select, Esc: exit]", 0, 0);
+	    message("-- CARET -- [h/j/k/l: move, v: select, V: line select, Esc: exit]",
+		    Currentbuf->cursorX + Currentbuf->rootX,
+		    Currentbuf->cursorY + Currentbuf->rootY);
 
+	term_cursor_show();
 	refresh();
 
 	c = getch();
@@ -5183,6 +5256,8 @@ DEFUN(caretVisualMode, CARET_MODE, "Enter Vimium Caret/Visual text selection mod
 	/* Exit / Cancel */
 	if (c == ESC_CODE || c == 'q' || c == CTRL_C || c == CTRL_G) {
 	    clear_visual_marks(Currentbuf);
+	    VisualCursorActive = 0;
+	    term_cursor_hide();
 	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
 	    disp_message("[Visual] Exited", TRUE);
 	    break;
@@ -5192,6 +5267,8 @@ DEFUN(caretVisualMode, CARET_MODE, "Enter Vimium Caret/Visual text selection mod
 	if (c == 'v') {
 	    if (selecting == 1) {
 		clear_visual_marks(Currentbuf);
+		VisualCursorActive = 0;
+		term_cursor_hide();
 		displayBuffer(Currentbuf, B_FORCE_REDRAW);
 		disp_message("[Visual] Selection cancelled", TRUE);
 		break;
@@ -5204,6 +5281,8 @@ DEFUN(caretVisualMode, CARET_MODE, "Enter Vimium Caret/Visual text selection mod
 	else if (c == 'V') {
 	    if (selecting == 2) {
 		clear_visual_marks(Currentbuf);
+		VisualCursorActive = 0;
+		term_cursor_hide();
 		displayBuffer(Currentbuf, B_FORCE_REDRAW);
 		disp_message("[Visual Line] Selection cancelled", TRUE);
 		break;
@@ -5231,10 +5310,14 @@ DEFUN(caretVisualMode, CARET_MODE, "Enter Vimium Caret/Visual text selection mod
 	    if (txt && *txt) {
 		clipboard_write(txt);
 		clear_visual_marks(Currentbuf);
+		VisualCursorActive = 0;
+		term_cursor_hide();
 		displayBuffer(Currentbuf, B_FORCE_REDRAW);
 		disp_message(Sprintf("[Visual] Yanked %d characters to clipboard", (int)strlen(txt))->ptr, TRUE);
 	    } else {
 		clear_visual_marks(Currentbuf);
+		VisualCursorActive = 0;
+		term_cursor_hide();
 		displayBuffer(Currentbuf, B_FORCE_REDRAW);
 		disp_message("[Visual] No text selected to yank", TRUE);
 	    }

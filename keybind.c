@@ -62,15 +62,15 @@ unsigned char EscKeymap[128] = {
     /*  H       I       J       K       L       M       N       O        */
     nulcmd, svI, nulcmd, nulcmd, nulcmd, linkbrz, nulcmd, escbmap,
     /*  P       Q       R       S       T       U       V       W        */
-    nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, dictwordat,
+    nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, caretVisualMode, dictwordat,
     /*  X       Y       Z       [       \       ]       ^       _        */
     nulcmd, nulcmd, nulcmd, escbmap, nulcmd, nulcmd, nulcmd, nulcmd,
     /*  `       a       b       c       d       e       f       g        */
-    nulcmd, adBmark, ldBmark, execCmd, nulcmd, editScr, nulcmd, goLine,
+    nulcmd, adBmark, ldBmark, caretMode, nulcmd, editScr, nulcmd, goLine,
     /*  h       i       j       k       l       m       n       o        */
     nulcmd, nulcmd, nulcmd, defKey, listMn, movlistMn, nextMk, setOpt,
     /*  p       q       r       s       t       u       v       w        */
-    prevMk, nulcmd, nulcmd, svSrc, tabMn, gorURL, pgBack, dictword,
+    prevMk, nulcmd, nulcmd, svSrc, tabMn, gorURL, caretVisualMode, dictword,
     /*  x       y       z       {       |       }       ~       DEL      */
     nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd,
 };

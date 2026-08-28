@@ -484,10 +484,21 @@ displayBuffer(Buffer *buf, int mode)
 	refresh();
     }
     standout();
-    message(msg->ptr, buf->cursorX + buf->rootX, buf->cursorY + buf->rootY);
+    if (!VisualCursorActive) {
+	message(msg->ptr, COLS - 1, LASTLINE);
+	term_cursor_hide();
+    } else {
+	message(msg->ptr, buf->cursorX + buf->rootX, buf->cursorY + buf->rootY);
+	term_cursor_show();
+    }
     standend();
     term_title(conv_to_system(buf->buffername));
     refresh();
+    if (!VisualCursorActive) {
+	term_cursor_hide();
+    } else {
+	term_cursor_show();
+    }
 #ifdef USE_IMAGE
     if (activeImage && displayImage && buf->img && buf->image_loaded) {
 	drawImage();

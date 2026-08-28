@@ -834,6 +834,7 @@ global int ShowEffect init(TRUE);
 global int PagerMax init(PAGER_MAX_LINE);
 
 global char SearchHeader init(FALSE);
+global int VisualCursorActive init(0);
 global char *DefaultType init(NULL);
 global char RenderFrame init(FALSE);
 global char TargetSelf init(FALSE);

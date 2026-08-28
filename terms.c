@@ -1079,6 +1079,7 @@ ttyname_tty(void)
 void
 reset_tty(void)
 {
+    term_cursor_show();
     writestr(T_op);		/* turn off */
     writestr(T_me);
     if (!Do_not_use_ti_te) {
@@ -2249,6 +2250,24 @@ term_noecho(void)
 }
 
 void
+term_cursor_hide(void)
+{
+    if (ttyf) {
+	fputs("\033[?25l", ttyf);
+	fflush(ttyf);
+    }
+}
+
+void
+term_cursor_show(void)
+{
+    if (ttyf) {
+	fputs("\033[?25h", ttyf);
+	fflush(ttyf);
+    }
+}
+
+void
 term_raw(void)
 #ifndef HAVE_SGTTY_H
 #ifdef IEXTEN
@@ -2257,6 +2276,7 @@ term_raw(void)
 #define TTY_MODE ISIG|ICANON|ECHO
 #endif				/* not IEXTEN */
 {
+    term_cursor_hide();
     ttymode_reset(TTY_MODE, IXON | IXOFF);
 #ifdef HAVE_TERMIOS_H
     set_cc(VMIN, 1);
