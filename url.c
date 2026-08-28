@@ -1518,6 +1518,13 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
         Strcat_charp(s, "User-Agent: ");
 	if (url_user_agent)
 	   Strcat_charp(s, url_user_agent);
+	else if (target->host && (strcasecmp(target->host, "duckduckgo.com") == 0 ||
+				  strcasecmp(target->host, "www.duckduckgo.com") == 0 ||
+				  strcasecmp(target->host, "lite.duckduckgo.com") == 0 ||
+				  strcasecmp(target->host, "html.duckduckgo.com") == 0)) {
+	    /* DuckDuckGo auto-redirects text browsers (w3m/Lynx) to lite.duckduckgo.com/lite/ */
+	    Strcat_charp(s, "w3m/0.5.3+git20230121");
+	}
 	else if (UserAgent == NULL || *UserAgent == '\0')
             Strcat_charp(s, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
         else
@@ -1525,13 +1532,15 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
         Strcat_charp(s, "\r\n");
     }
 
-    /* Modern browser client hints & fetch metadata to bypass CDN WAFs */
-    Strcat_charp(s, "sec-ch-ua: \"Not(A:Brand\";v=\"99\", \"Google Chrome\";v=\"133\", \"Chromium\";v=\"133\"\r\n");
-    Strcat_charp(s, "sec-ch-ua-mobile: ?0\r\n");
-    Strcat_charp(s, "sec-ch-ua-platform: \"macOS\"\r\n");
-    Strcat_charp(s, "Sec-Fetch-Site: cross-site\r\n");
-    Strcat_charp(s, "Sec-Fetch-Mode: no-cors\r\n");
-    Strcat_charp(s, "Sec-Fetch-Dest: image\r\n");
+    if (!(target->host && (strcasestr(target->host, "duckduckgo.com")))) {
+	/* Modern browser client hints & fetch metadata to bypass CDN WAFs */
+	Strcat_charp(s, "sec-ch-ua: \"Not(A:Brand\";v=\"99\", \"Google Chrome\";v=\"133\", \"Chromium\";v=\"133\"\r\n");
+	Strcat_charp(s, "sec-ch-ua-mobile: ?0\r\n");
+	Strcat_charp(s, "sec-ch-ua-platform: \"macOS\"\r\n");
+	Strcat_charp(s, "Sec-Fetch-Site: cross-site\r\n");
+	Strcat_charp(s, "Sec-Fetch-Mode: no-cors\r\n");
+	Strcat_charp(s, "Sec-Fetch-Dest: image\r\n");
+    }
 
     if (AcceptMedia && *AcceptMedia)
 	Strcat_m_charp(s, "Accept: ", AcceptMedia, "\r\n", NULL);
