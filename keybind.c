@@ -9,15 +9,15 @@ unsigned char GlobalKeymap[128] = {
     _mark, linbeg, movL, nulcmd, nulcmd, linend, movR, curlno,
 #endif
     /*  C-h     C-i     C-j     C-k     C-l     C-m     C-n     C-o      */
-    ldHist, nextA, followA, cooLst, rdrwSc, followA, movD, nulcmd,
+    ldHist, nextA, followA, cooLst, rdrwSc, followA, movD, undoPos,
     /*  C-p     C-q     C-r     C-s     C-t     C-u     C-v     C-w      */
     movU, closeT, isrchbak, isrchfor, tabA, prevA, pgFore, wrapToggle,
     /*  C-x     C-y     C-z     C-[     C-\     C-]     C-^     C-_      */
     nulcmd, nulcmd, susp, escmap, nulcmd, nulcmd, nulcmd, goHome,
     /*  SPC     !       "       #       $       %       &       '        */
-    pgFore, execsh, reMark, pipesh, linend, nulcmd, nulcmd, gotoVimMark,
+    pgFore, execsh, reMark, srch_word_back, linend, nulcmd, nulcmd, gotoVimMark,
     /*  (       )       *       +       ,       -       .       /        */
-    undoPos, redoPos, nulcmd, pgFore, col1L, pgBack, col1R, srchfor,
+    undoPos, redoPos, srch_word_forw, pgFore, col1L, pgBack, col1R, srchfor,
     /*  0       1       2       3       4       5       6       7        */
     nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd,
     /*  8       9       :       ;       <       =       >       ?        */

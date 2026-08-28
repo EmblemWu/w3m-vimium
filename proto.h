@@ -24,6 +24,8 @@ extern void srchbak(void);
 extern void isrchbak(void);
 extern void srchnxt(void);
 extern void srchprv(void);
+extern void srch_word_forw(void);
+extern void srch_word_back(void);
 extern void shiftl(void);
 extern void shiftr(void);
 extern void col1R(void);

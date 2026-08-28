@@ -2756,6 +2756,94 @@ DEFUN(movRW, NEXT_WORD, "Move to the next word")
     displayBuffer(Currentbuf, B_NORMAL);
 }
 
+static char *
+getCurWord(Buffer *buf, int *spos, int *epos)
+{
+    char *p;
+    Line *l = buf->currentLine;
+    int b, e;
+
+    *spos = 0;
+    *epos = 0;
+    if (l == NULL)
+	return NULL;
+    p = l->lineBuf;
+    e = buf->pos;
+    while (e > 0 && !is_wordchar(getChar(&p[e])))
+	prevChar(e, l);
+    if (!is_wordchar(getChar(&p[e])))
+	return NULL;
+    b = e;
+    while (b > 0) {
+	int tmp = b;
+	prevChar(tmp, l);
+	if (!is_wordchar(getChar(&p[tmp])))
+	    break;
+	b = tmp;
+    }
+    while (e < l->len && is_wordchar(getChar(&p[e])))
+	nextChar(e, l);
+    *spos = b;
+    *epos = e;
+    return &p[b];
+}
+
+static char *
+GetWord(Buffer *buf)
+{
+    int b, e;
+    char *p;
+
+    if ((p = getCurWord(buf, &b, &e)) != NULL) {
+	return Strnew_charp_n(p, e - b)->ptr;
+    }
+    return NULL;
+}
+
+static void
+srch_word(int reverse)
+{
+    char *w;
+    int result;
+    static int (*routine[2]) (Buffer *, char *) = {
+	forwardSearch, backwardSearch
+    };
+
+    if (Currentbuf == NULL)
+	return;
+    w = GetWord(Currentbuf);
+    if (w == NULL || *w == '\0') {
+	disp_message("No word under cursor", TRUE);
+	return;
+    }
+
+    SearchString = allocStr(w, -1);
+    searchRoutine = routine[reverse ? 1 : 0];
+    if (reverse == 0)
+	Currentbuf->pos += 1;
+    result = srchcore(SearchString, routine[reverse ? 1 : 0]);
+    if (result & SR_FOUND)
+	clear_mark(Currentbuf->currentLine);
+    else {
+	if (reverse == 0)
+	    Currentbuf->pos -= 1;
+    }
+    displayBuffer(Currentbuf, B_NORMAL);
+    disp_srchresult(result, (reverse ? "Backward: " : "Forward: "), SearchString);
+}
+
+/* Search forward for word under cursor (*) */
+DEFUN(srch_word_forw, SRCH_WORD_FORW, "Search forward for word under cursor (*)")
+{
+    srch_word(0);
+}
+
+/* Search backward for word under cursor (#) */
+DEFUN(srch_word_back, SRCH_WORD_BACK, "Search backward for word under cursor (#)")
+{
+    srch_word(1);
+}
+
 static void
 _quitfm(int confirm)
 {
@@ -8372,50 +8460,6 @@ DEFUN(wrapToggle, WRAP_TOGGLE, "Toggle wrapping mode in searches")
 	/* FIXME: gettextize? */
 	disp_message("Wrap search on", TRUE);
     }
-}
-
-static char *
-getCurWord(Buffer *buf, int *spos, int *epos)
-{
-    char *p;
-    Line *l = buf->currentLine;
-    int b, e;
-
-    *spos = 0;
-    *epos = 0;
-    if (l == NULL)
-	return NULL;
-    p = l->lineBuf;
-    e = buf->pos;
-    while (e > 0 && !is_wordchar(getChar(&p[e])))
-	prevChar(e, l);
-    if (!is_wordchar(getChar(&p[e])))
-	return NULL;
-    b = e;
-    while (b > 0) {
-	int tmp = b;
-	prevChar(tmp, l);
-	if (!is_wordchar(getChar(&p[tmp])))
-	    break;
-	b = tmp;
-    }
-    while (e < l->len && is_wordchar(getChar(&p[e])))
-	nextChar(e, l);
-    *spos = b;
-    *epos = e;
-    return &p[b];
-}
-
-static char *
-GetWord(Buffer *buf)
-{
-    int b, e;
-    char *p;
-
-    if ((p = getCurWord(buf, &b, &e)) != NULL) {
-	return Strnew_charp_n(p, e - b)->ptr;
-    }
-    return NULL;
 }
 
 #ifdef USE_DICT
