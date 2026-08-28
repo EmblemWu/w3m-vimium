@@ -136,6 +136,7 @@ inputLineHistSearch(char *prompt, char *def_str, int flag, Hist *hist,
 #ifdef SUPPORT_WIN9X_CONSOLE_MBCS
     enable_win9x_console_input();
 #endif
+    term_cursor_show();
     i_cont = TRUE;
     i_broken = FALSE;
     i_quote = FALSE;
@@ -263,11 +264,16 @@ inputLineHistSearch(char *prompt, char *def_str, int flag, Hist *hist,
     disable_win9x_console_input();
 #endif
 
-    if (i_broken)
+    if (i_broken) {
+	if (!VisualCursorActive)
+	    term_cursor_hide();
 	return NULL;
+    }
 
     move(LASTLINE, 0);
     refresh();
+    if (!VisualCursorActive)
+	term_cursor_hide();
     p = strBuf->ptr;
     if (flag & (IN_FILENAME | IN_COMMAND)) {
 	SKIP_BLANKS(p);
