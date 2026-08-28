@@ -5165,7 +5165,7 @@ DEFUN(caretMode, CARET, "Enter Vimium Caret navigation mode")
 
 	c = getch();
 
-	if (c == ESC_CODE || c == 'q' || c == CTRL_C || c == CTRL_G) {
+	if (c == ESC_CODE || c == 'q' || c == 'c' || c == 'C' || c == CTRL_C || c == CTRL_G) {
 	    VisualCursorActive = 0;
 	    term_cursor_hide();
 	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
@@ -5254,7 +5254,7 @@ DEFUN(caretVisualMode, CARET_MODE, "Enter Vimium Caret/Visual text selection mod
 	c = getch();
 
 	/* Exit / Cancel */
-	if (c == ESC_CODE || c == 'q' || c == CTRL_C || c == CTRL_G) {
+	if (c == ESC_CODE || c == 'q' || c == 'c' || c == 'C' || c == CTRL_C || c == CTRL_G) {
 	    clear_visual_marks(Currentbuf);
 	    VisualCursorActive = 0;
 	    term_cursor_hide();
