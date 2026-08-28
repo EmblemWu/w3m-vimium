@@ -5054,300 +5054,243 @@ DEFUN(tabVomnibar, TAB_VOMNIBAR, "Interactive Tab Switcher & Search (Vimium-like
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
 }
 
-static char *
-extract_text_between(Buffer *buf, int mode, int line1, int pos1, int line2, int pos2)
+static void
+clear_visual_marks(Buffer *buf)
 {
-    Str text = Strnew();
     Line *l;
-    int start_l, start_p, end_l, end_p;
+    if (buf == NULL)
+	return;
+    for (l = buf->firstLine; l != NULL; l = l->next) {
+	if (l->propBuf) {
+	    for (int i = 0; i < l->len; i++) {
+		l->propBuf[i] &= ~PE_MARK;
+	    }
+	}
+    }
+}
 
-    if (buf == NULL || buf->firstLine == NULL)
-	return NULL;
+static void
+apply_visual_selection(Buffer *buf, int mode, Line *anchor_line, int anchor_pos, Line *cursor_line, int cursor_pos)
+{
+    Line *l;
+    long a_num, c_num;
+    long start_l, end_l;
+    int start_p, end_p;
 
-    if (line1 < line2 || (line1 == line2 && pos1 <= pos2)) {
-	start_l = line1; start_p = pos1;
-	end_l = line2; end_p = pos2;
+    if (buf == NULL || mode == 0)
+	return;
+
+    clear_visual_marks(buf);
+
+    a_num = (anchor_line != NULL) ? anchor_line->linenumber : 1;
+    c_num = (cursor_line != NULL) ? cursor_line->linenumber : 1;
+
+    if (a_num < c_num || (a_num == c_num && anchor_pos <= cursor_pos)) {
+	start_l = a_num; start_p = anchor_pos;
+	end_l = c_num; end_p = cursor_pos;
     } else {
-	start_l = line2; start_p = pos2;
-	end_l = line1; end_p = pos1;
+	start_l = c_num; start_p = cursor_pos;
+	end_l = a_num; end_p = anchor_pos;
     }
 
     for (l = buf->firstLine; l != NULL; l = l->next) {
-	int lnum = l->linenumber;
+	long lnum = l->linenumber;
 	if (lnum > end_l)
 	    break;
-	if (lnum >= start_l) {
+	if (lnum >= start_l && l->propBuf && l->len > 0) {
 	    int p1, p2;
 	    if (mode == 2) { /* Line-wise visual mode (V) */
 		p1 = 0;
-		p2 = l->len;
+		p2 = l->len - 1;
 	    } else { /* Character-wise visual mode (v) */
 		p1 = (lnum == start_l) ? start_p : 0;
-		p2 = (lnum == end_l) ? end_p : l->len;
+		p2 = (lnum == end_l) ? end_p : l->len - 1;
 	    }
 	    if (p1 < 0) p1 = 0;
-	    if (p2 > l->len) p2 = l->len;
-	    if (p2 >= p1 && l->lineBuf) {
-		Strcat_charp_n(text, &l->lineBuf[p1], p2 - p1);
+	    if (p2 >= l->len) p2 = l->len - 1;
+	    for (int i = p1; i <= p2; i++) {
+		l->propBuf[i] |= PE_MARK;
 	    }
-	    if (lnum < end_l || mode == 2)
-		Strcat_char(text, '\n');
 	}
+    }
+}
+
+static char *
+extract_visual_marked_text(Buffer *buf)
+{
+    Str text = Strnew();
+    Line *l;
+
+    if (buf == NULL)
+	return NULL;
+
+    for (l = buf->firstLine; l != NULL; l = l->next) {
+	if (l->propBuf && l->lineBuf && l->len > 0) {
+	    int has_mark = 0;
+	    for (int i = 0; i < l->len; i++) {
+		if (l->propBuf[i] & PE_MARK) {
+		    Strcat_char(text, l->lineBuf[i]);
+		    has_mark = 1;
+		}
+	    }
+	    if (has_mark) {
+		Strcat_char(text, '\n');
+	    }
+	}
+    }
+    if (text->length > 0 && text->ptr[text->length - 1] == '\n') {
+	text->ptr[text->length - 1] = '\0';
+	text->length--;
     }
     return text->ptr;
 }
 
-static void
-draw_visual_selection(Buffer *buf, int mode, int anchor_line, int anchor_pos, int cur_line, int cur_pos)
-{
-    Line *l;
-    int start_l, start_p, end_l, end_p;
-    int i;
-
-    if (buf == NULL || buf->topLine == NULL || mode == 0)
-	return;
-
-    if (anchor_line < cur_line || (anchor_line == cur_line && anchor_pos <= cur_pos)) {
-	start_l = anchor_line; start_p = anchor_pos;
-	end_l = cur_line; end_p = cur_pos;
-    } else {
-	start_l = cur_line; start_p = cur_pos;
-	end_l = anchor_line; end_p = anchor_pos;
-    }
-
-    l = buf->topLine;
-    for (i = 0; l != NULL && i < buf->LINES; l = l->next, i++) {
-	int lnum = l->linenumber;
-	if (lnum >= start_l && lnum <= end_l) {
-	    int bpos, epos;
-	    int column = buf->currentColumn;
-	    int pos;
-	    char *p;
-	    int rcol;
-	    int delta = 1;
-	    int screen_y = i + buf->rootY;
-
-	    if (mode == 2) { /* Line-wise */
-		bpos = 0;
-		epos = l->len;
-	    } else { /* Character-wise */
-		if (lnum == start_l && lnum == end_l) {
-		    bpos = start_p;
-		    epos = end_p;
-		} else if (lnum == start_l) {
-		    bpos = start_p;
-		    epos = l->len;
-		} else if (lnum == end_l) {
-		    bpos = 0;
-		    epos = end_p;
-		} else {
-		    bpos = 0;
-		    epos = l->len;
-		}
-	    }
-	    if (epos < bpos) {
-		int tmp = bpos; bpos = epos; epos = tmp;
-	    }
-
-	    pos = columnPos(l, column);
-	    if (pos >= l->len) continue;
-	    p = &(l->lineBuf[pos]);
-	    rcol = COLPOS(l, pos);
-
-	    for (int j = 0; rcol - column < buf->COLS && pos + j < l->len; j += delta) {
-#ifdef USE_M17N
-		delta = wtf_len((wc_uchar *)&p[j]);
-#else
-		delta = 1;
-#endif
-		int ncol = COLPOS(l, pos + j + delta);
-		if (ncol - column > buf->COLS)
-		    break;
-
-		int char_idx = pos + j;
-		if (char_idx >= bpos && char_idx < epos) {
-		    if (rcol >= column) {
-			int screen_x = rcol - column + buf->rootX;
-			if (screen_x < COLS && screen_y < LINES) {
-			    move(screen_y, screen_x);
-			    standout();
-			    for (int k = 0; k < delta && p[j + k] != '\0'; k++)
-				addch(p[j + k]);
-			    standend();
-			}
-		    }
-		}
-		rcol = ncol;
-	    }
-	}
-    }
-}
-
 DEFUN(caretVisualMode, CARET_MODE, "Enter Vimium Caret/Visual text selection mode")
 {
-    int selecting = 0; /* 0: Caret navigation, 1: Visual char mode (v), 2: Visual line mode (V) */
-    int anchor_line = 0;
+    int selecting = 1; /* 1: Visual char mode (v), 2: Visual line mode (V) */
+    Line *anchor_line = NULL;
     int anchor_pos = 0;
     int c;
 
     if (Currentbuf == NULL || Currentbuf->currentLine == NULL)
 	return;
 
+    use_mark = 1;
+    anchor_line = Currentbuf->currentLine;
+    anchor_pos = Currentbuf->pos;
+
+    apply_visual_selection(Currentbuf, selecting, anchor_line, anchor_pos,
+			  Currentbuf->currentLine, Currentbuf->pos);
+
     for (;;) {
 	displayBuffer(Currentbuf, B_FORCE_REDRAW);
-	if (selecting) {
-	    draw_visual_selection(Currentbuf, selecting, anchor_line, anchor_pos,
-				  Currentbuf->currentLine->linenumber, Currentbuf->pos);
-	}
 
 	if (selecting == 1)
-	    message(Sprintf("[VISUAL] (%d:%d)->(%d:%d) | h/j/k/l/w/b: move, o: swap, y: yank, p: tab-open, v: cancel",
-			    anchor_line, anchor_pos,
+	    message(Sprintf("-- VISUAL -- [h/j/k/l/w/b: move, o: swap anchor, y: yank, V: line mode, Esc: exit] (%ld:%d)->(%ld:%d)",
+			    anchor_line ? anchor_line->linenumber : 1, anchor_pos,
 			    Currentbuf->currentLine->linenumber, Currentbuf->pos)->ptr, 0, 0);
 	else if (selecting == 2)
-	    message(Sprintf("[VISUAL LINE] lines %d-%d | j/k: expand, o: swap, y: yank, p: tab-open, V: cancel",
-			    (anchor_line <= Currentbuf->currentLine->linenumber) ? anchor_line : Currentbuf->currentLine->linenumber,
-			    (anchor_line <= Currentbuf->currentLine->linenumber) ? Currentbuf->currentLine->linenumber : anchor_line)->ptr, 0, 0);
+	    message(Sprintf("-- VISUAL LINE -- [j/k: expand lines, o: swap anchor, y: yank, v: char mode, Esc: exit] lines %ld-%ld",
+			    (anchor_line ? anchor_line->linenumber : 1) <= Currentbuf->currentLine->linenumber ? (anchor_line ? anchor_line->linenumber : 1) : Currentbuf->currentLine->linenumber,
+			    (anchor_line ? anchor_line->linenumber : 1) <= Currentbuf->currentLine->linenumber ? Currentbuf->currentLine->linenumber : (anchor_line ? anchor_line->linenumber : 1))->ptr, 0, 0);
 	else
-	    message(Sprintf("[CARET] (%d:%d) | h/j/k/l/w/b: move, v: char select, V: line select, y: yank line, q: exit",
-			    Currentbuf->currentLine->linenumber, Currentbuf->pos)->ptr, 0, 0);
+	    message("-- CARET -- [h/j/k/l: move, v: select, V: line select, Esc: exit]", 0, 0);
+
 	refresh();
 
 	c = getch();
+
+	/* Exit / Cancel */
 	if (c == ESC_CODE || c == 'q' || c == CTRL_C || c == CTRL_G) {
-	    disp_message("Exited Caret/Visual mode", TRUE);
+	    clear_visual_marks(Currentbuf);
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    disp_message("[Visual] Exited", TRUE);
 	    break;
 	}
 
+	/* Toggle modes */
 	if (c == 'v') {
 	    if (selecting == 1) {
-		selecting = 0;
-		disp_message("Visual mode cleared", TRUE);
+		clear_visual_marks(Currentbuf);
+		displayBuffer(Currentbuf, B_FORCE_REDRAW);
+		disp_message("[Visual] Selection cancelled", TRUE);
+		break;
 	    } else {
 		selecting = 1;
-		anchor_line = Currentbuf->currentLine->linenumber;
+		anchor_line = Currentbuf->currentLine;
 		anchor_pos = Currentbuf->pos;
-		disp_message("Visual (char) mode active — move to select, press y to yank", TRUE);
 	    }
-	    continue;
 	}
-
-	if (c == 'V') {
+	else if (c == 'V') {
 	    if (selecting == 2) {
-		selecting = 0;
-		disp_message("Visual line mode cleared", TRUE);
+		clear_visual_marks(Currentbuf);
+		displayBuffer(Currentbuf, B_FORCE_REDRAW);
+		disp_message("[Visual Line] Selection cancelled", TRUE);
+		break;
 	    } else {
 		selecting = 2;
-		anchor_line = Currentbuf->currentLine->linenumber;
+		anchor_line = Currentbuf->currentLine;
 		anchor_pos = 0;
-		disp_message("Visual (line) mode active — j/k to expand lines, press y to yank", TRUE);
 	    }
-	    continue;
 	}
-
-	if (c == 'c' || c == 'C') {
-	    selecting = 0;
-	    disp_message("Switched to Caret navigation mode", TRUE);
-	    continue;
-	}
-
-	if (c == 'o' || c == 'O') {
-	    if (selecting) {
-		int tmp_l = anchor_line;
+	/* Swap anchor and cursor */
+	else if (c == 'o' || c == 'O') {
+	    if (selecting && anchor_line) {
+		Line *tmp_l = anchor_line;
 		int tmp_p = anchor_pos;
-		anchor_line = Currentbuf->currentLine->linenumber;
+		anchor_line = Currentbuf->currentLine;
 		anchor_pos = Currentbuf->pos;
-		gotoLine(Currentbuf, tmp_l);
+		Currentbuf->currentLine = tmp_l;
 		Currentbuf->pos = tmp_p;
 		arrangeCursor(Currentbuf);
-		disp_message("Swapped selection anchor and cursor", TRUE);
 	    }
-	    continue;
 	}
-
-	if (c == 'y' || c == 'Y') {
-	    char *txt = NULL;
-	    if (selecting) {
-		txt = extract_text_between(Currentbuf, selecting, anchor_line, anchor_pos,
-					  Currentbuf->currentLine->linenumber, Currentbuf->pos);
-	    } else if (Currentbuf->currentLine && Currentbuf->currentLine->lineBuf) {
-		txt = Currentbuf->currentLine->lineBuf;
-	    }
+	/* Yank selection to clipboard */
+	else if (c == 'y' || c == 'Y') {
+	    char *txt = extract_visual_marked_text(Currentbuf);
 	    if (txt && *txt) {
-		if (clipboard_write(txt))
-		    disp_message(Sprintf("Yanked %d characters to clipboard", (int)strlen(txt))->ptr, TRUE);
-		else
-		    disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
+		clipboard_write(txt);
+		clear_visual_marks(Currentbuf);
+		displayBuffer(Currentbuf, B_FORCE_REDRAW);
+		disp_message(Sprintf("[Visual] Yanked %d characters to clipboard", (int)strlen(txt))->ptr, TRUE);
 	    } else {
-		disp_message("Nothing to yank", TRUE);
+		clear_visual_marks(Currentbuf);
+		displayBuffer(Currentbuf, B_FORCE_REDRAW);
+		disp_message("[Visual] No text selected to yank", TRUE);
 	    }
 	    break;
 	}
-
-	if (c == 'p' || c == 'P') {
-	    char *txt = NULL;
-	    if (selecting) {
-		txt = extract_text_between(Currentbuf, selecting, anchor_line, anchor_pos,
-					  Currentbuf->currentLine->linenumber, Currentbuf->pos);
-	    } else if (Currentbuf->currentLine && Currentbuf->currentLine->lineBuf) {
-		txt = Currentbuf->currentLine->lineBuf;
-	    }
-	    if (txt && *txt) {
-		char *target;
-		SKIP_BLANKS(txt);
-		target = smart_url_or_search(txt);
-		if (target && *target) {
-		    if (c == 'p') {
-			_newT();
-			cmd_loadURL(target, baseURL(Currentbuf), NO_REFERER, NULL);
-		    } else {
-			cmd_loadURL(target, baseURL(Currentbuf), NO_REFERER, NULL);
-		    }
-		    break;
-		}
-	    }
-	    disp_message("No valid text to search/open", TRUE);
-	    continue;
+	/* Motions */
+	else if (c == 'h' || c == 0x02 /* Left arrow */) {
+	    cursorLeft(Currentbuf, 1);
+	}
+	else if (c == 'l' || c == 0x06 /* Right arrow */) {
+	    cursorRight(Currentbuf, 1);
+	}
+	else if (c == 'j' || c == 0x0e /* Down arrow */) {
+	    cursorDown(Currentbuf, 1);
+	}
+	else if (c == 'k' || c == 0x10 /* Up arrow */) {
+	    cursorUp(Currentbuf, 1);
+	}
+	else if (c == 'w') {
+	    movRW();
+	}
+	else if (c == 'b') {
+	    movLW();
+	}
+	else if (c == '0' || c == '^') {
+	    linbeg();
+	}
+	else if (c == '$') {
+	    linend();
+	}
+	else if (c == 'G') {
+	    goLineL();
+	}
+	else if (c == 'g') {
+	    int c2 = getch();
+	    if (c2 == 'g')
+		goLineF();
+	}
+	else if (c == 0x04) { /* Ctrl-D */
+	    col1R();
+	}
+	else if (c == 0x15) { /* Ctrl-U */
+	    col1L();
+	}
+	else if (c == 0x06) { /* Ctrl-F */
+	    pgFore();
+	}
+	else if (c == 0x02) { /* Ctrl-B */
+	    pgBack();
 	}
 
-	if (c == 'h') col1L();
-	else if (c == 'l') col1R();
-	else if (c == 'j') ldown1();
-	else if (c == 'k') lup1();
-	else if (c == 'w' || c == 'e') movRW();
-	else if (c == 'b') movLW();
-	else if (c == '0' || c == '^') linbeg();
-	else if (c == '$') linend();
-	else if (c == 'd') hpgFore();
-	else if (c == 'u') hpgBack();
-	else if (c == 'g') goLineF();
-	else if (c == 'G') goLineL();
-	else if (c == 'f' || c == 'F') {
-	    int target_ch = getch();
-	    if (Currentbuf->currentLine && Currentbuf->currentLine->lineBuf && target_ch > 0 && target_ch < 128) {
-		char *lb = Currentbuf->currentLine->lineBuf;
-		int len = Currentbuf->currentLine->len;
-		if (c == 'f') {
-		    for (int pidx = Currentbuf->pos + 1; pidx < len; pidx++) {
-			if (lb[pidx] == (char)target_ch) {
-			    Currentbuf->pos = pidx;
-			    arrangeCursor(Currentbuf);
-			    break;
-			}
-		    }
-		} else {
-		    for (int pidx = Currentbuf->pos - 1; pidx >= 0; pidx--) {
-			if (lb[pidx] == (char)target_ch) {
-			    Currentbuf->pos = pidx;
-			    arrangeCursor(Currentbuf);
-			    break;
-			}
-		    }
-		}
-	    }
+	if (selecting) {
+	    apply_visual_selection(Currentbuf, selecting, anchor_line, anchor_pos,
+				  Currentbuf->currentLine, Currentbuf->pos);
 	}
     }
-    displayBuffer(Currentbuf, B_FORCE_REDRAW);
 }
 
 static void

@@ -168,16 +168,16 @@ static struct compression_decoder {
 } compression_decoders[] = {
     { CMP_COMPRESS, ".gz", "application/x-gzip",
       0, GUNZIP_CMDNAME, GUNZIP_NAME, "gzip", 
-      {"gzip", "x-gzip", NULL}, 0 }, 
+      {"gzip", "x-gzip", NULL}, 1 }, 
     { CMP_COMPRESS, ".Z", "application/x-compress",
       0, GUNZIP_CMDNAME, GUNZIP_NAME, "compress",
-      {"compress", "x-compress", NULL}, 0 }, 
+      {"compress", "x-compress", NULL}, 1 }, 
     { CMP_BZIP2, ".bz2", "application/x-bzip",
       0, BUNZIP2_CMDNAME, BUNZIP2_NAME, "bzip, bzip2",
-      {"x-bzip", "bzip", "bzip2", NULL}, 0 }, 
+      {"x-bzip", "bzip", "bzip2", NULL}, 1 }, 
     { CMP_DEFLATE, ".deflate", "application/x-deflate",
       1, INFLATE_CMDNAME, INFLATE_NAME, "deflate",
-      {"deflate", "x-deflate", NULL}, 0 }, 
+      {"deflate", "x-deflate", NULL}, 1 }, 
     { CMP_BROTLI, ".br", "application/x-br",
       0, BROTLI_CMDNAME, BROTLI_NAME, "br",
       {"br", "x-br", NULL}, 1 }, 
@@ -8782,10 +8782,14 @@ uncompress_stream(URLFile *uf, char **src)
 	/* child1 */
 	dup2(1, 2);		/* stderr>&stdout */
 	setup_child(TRUE, -1, -1);
-	if (use_d_arg)
-	    execlp(expand_cmd, expand_name, "-d", NULL);
+	if (strcmp(expand_name, "gunzip") == 0)
+	    execlp(expand_cmd, expand_name, "-c", NULL);
+	else if (strcmp(expand_name, "gzip") == 0)
+	    execlp(expand_cmd, expand_name, "-d", "-c", NULL);
+	else if (use_d_arg)
+	    execlp(expand_cmd, expand_name, "-d", "-c", NULL);
 	else
-	    execlp(expand_cmd, expand_name, NULL);
+	    execlp(expand_cmd, expand_name, "-c", NULL);
 	exit(1);
     }
     if (tmpf) {
