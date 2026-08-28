@@ -23,15 +23,15 @@ unsigned char GlobalKeymap[128] = {
     /*  8       9       :       ;       <       =       >       ?        */
     nulcmd, nulcmd, chkURL, chkWORD, shiftl, pginfo, shiftr, ldhelp,
     /*  @       A       B       C       D       E       F       G        */
-    readsh, nulcmd, backBf, nulcmd, ldDL, editBf, hintTabL, goLineL,
+    readsh, nulcmd, backBf, caretMode, ldDL, editBf, hintTabL, goLineL,
     /*  H       I       J       K       L       M       N       O        */
     backBf, followI, nextT, prevT, nextBf, extbrz, srchprv, tabSmartURL,
     /*  P       Q       R       S       T       U       V       W        */
-    tabPasteURL, quitfm, reload, svBuf, tabVomnibar, goURL, ldfile, movLW,
+    tabPasteURL, quitfm, reload, svBuf, tabVomnibar, goURL, caretVisualMode, movLW,
     /*  X       Y       Z       [       \       ]       ^       _        */
     restoreTab, nulcmd, ctrCsrH, topA, nulcmd, lastA, linbeg, nulcmd,
     /*  `       a       b       c       d       e       f       g        */
-    nulcmd, svA, pgBack, curURL, hpgFore, nulcmd, hintL, vimiumG,
+    nulcmd, svA, pgBack, caretMode, hpgFore, nulcmd, hintL, vimiumG,
     /*  h       i       j       k       l       m       n       o        */
     col1L, peekIMG, lup1, ldown1, col1R, setVimMark, srchnxt, smartURL,
     /*  p       q       r       s       t       u       v       w        */
