@@ -3316,6 +3316,14 @@ process_img(struct parsed_tag *tag, int width)
 #else
 	    q = m;
 #endif
+	    /* Math formula is pure inline text: return immediately as a clean inline span */
+	    tmp = Strnew_size(128);
+	    Strcat_charp(tmp, "<img_alt src=\"");
+	    Strcat_charp(tmp, html_quote(p));
+	    Strcat_charp(tmp, "\">");
+	    Strcat_charp(tmp, html_quote(q));
+	    Strcat_charp(tmp, "</img_alt>");
+	    return tmp;
 	}
     }
     if (!pseudoInlines && (q == NULL || (*q == '\0' && ignore_null_img_alt)))
