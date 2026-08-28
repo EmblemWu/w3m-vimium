@@ -5029,12 +5029,20 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	obuf->flag |= RB_STYLE;
 	obuf->end_tag = HTML_N_STYLE;
 	return 1;
+    case HTML_MATH:
+	obuf->flag |= RB_MATH;
+	obuf->end_tag = HTML_N_MATH;
+	return 1;
     case HTML_N_SCRIPT:
 	obuf->flag &= ~RB_SCRIPT;
 	obuf->end_tag = 0;
 	return 1;
     case HTML_N_STYLE:
 	obuf->flag &= ~RB_STYLE;
+	obuf->end_tag = 0;
+	return 1;
+    case HTML_N_MATH:
+	obuf->flag &= ~RB_MATH;
 	obuf->end_tag = 0;
 	return 1;
     case HTML_A:
@@ -6523,7 +6531,7 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 		if (str[1] && REALLY_THE_BEGINNING_OF_A_TAG(str))
 		    is_tag = TRUE;
 		else if (!(pre_mode & (RB_PLAIN | RB_INTXTA | RB_INSELECT |
-				       RB_SCRIPT | RB_STYLE | RB_TITLE))) {
+				       RB_SCRIPT | RB_STYLE | RB_TITLE | RB_MATH))) {
 		    line = Strnew_m_charp(str + 1, line, NULL)->ptr;
 		    str = "&lt;";
 		}
@@ -6541,7 +6549,7 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 	}
 
 	if (pre_mode & (RB_PLAIN | RB_INTXTA | RB_INSELECT | RB_SCRIPT |
-			RB_STYLE | RB_TITLE)) {
+			RB_STYLE | RB_TITLE | RB_MATH)) {
 	    if (is_tag) {
 		p = str;
 		if ((tag = parse_tag(&p, internal))) {
@@ -6585,6 +6593,9 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 		continue;
 	    /* style */
 	    if (pre_mode & RB_STYLE)
+		continue;
+	    /* math */
+	    if (pre_mode & RB_MATH)
 		continue;
 	}
 

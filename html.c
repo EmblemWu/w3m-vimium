@@ -279,6 +279,8 @@ TagInfo TagMAP[MAX_HTMLTAG] = {
     {"/div_int", NULL, 0, TFLG_INT | TFLG_END},					/* 184 HTML_N_DIV_INT      */
     {"code", ALST_NOP, ARR_SZ(ALST_NOP), 0},					/* 185 HTML_CODE           */
     {"/code", NULL, 0, TFLG_END},						/* 186 HTML_N_CODE         */
+    {"math", ALST_NOP, ARR_SZ(ALST_NOP), 0},					/* 187 HTML_MATH           */
+    {"/math", NULL, 0, TFLG_END},						/* 188 HTML_N_MATH         */
 };
 
 TagAttrInfo AttrMAP[MAX_TAGATTR] = {
