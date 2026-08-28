@@ -1,6 +1,7 @@
 /* $Id: main.c,v 1.270 2010/08/24 10:11:51 htrb Exp $ */
 #define MAINPROGRAM
 #include "fm.h"
+#include "menu.h"
 #include <stdio.h>
 #include <signal.h>
 #include <setjmp.h>
@@ -5786,26 +5787,55 @@ typedef struct {
     char text[80];
 } TocItem;
 
+static Menu TocMenu;
+static int TocV = 0;
+static long TocLineNums[200];
+
+static void
+onTocSelect(void)
+{
+    if (TocV >= 0 && TocV < 200 && TocLineNums[TocV] > 0) {
+	gotoLine(Currentbuf, TocLineNums[TocV]);
+	Currentbuf->pos = 0;
+	arrangeCursor(Currentbuf);
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	disp_message(Sprintf("Jumped to heading: line %ld", TocLineNums[TocV])->ptr, TRUE);
+    }
+}
+
 static void
 show_table_of_contents(void)
 {
     Line *l;
-    TocItem toc[30];
     int count = 0;
-    char prompt[128];
-    char *input;
-    int choice;
+    char **label;
+    Str s;
+    int x, y;
 
     if (Currentbuf == NULL || Currentbuf->firstLine == NULL)
 	return;
 
-    for (l = Currentbuf->firstLine; l != NULL && count < 30; l = l->next) {
+    label = New_N(char *, 202);
+    for (l = Currentbuf->firstLine; l != NULL && count < 200; l = l->next) {
 	if (is_heading_line(l)) {
 	    char *p = l->lineBuf;
 	    SKIP_BLANKS(p);
-	    toc[count].linenumber = l->linenumber;
-	    strncpy(toc[count].text, p, sizeof(toc[count].text) - 1);
-	    toc[count].text[sizeof(toc[count].text) - 1] = '\0';
+	    TocLineNums[count] = l->linenumber;
+	    s = Strnew();
+	    if (strncmp(p, "# ", 2) == 0) {
+		Strcat_charp(s, "# ");
+		Strcat_charp(s, p + 2);
+	    } else if (strncmp(p, "## ", 3) == 0) {
+		Strcat_charp(s, "  ## ");
+		Strcat_charp(s, p + 3);
+	    } else if (strncmp(p, "### ", 4) == 0) {
+		Strcat_charp(s, "    ### ");
+		Strcat_charp(s, p + 4);
+	    } else {
+		Strcat_charp(s, "• ");
+		Strcat_charp(s, p);
+	    }
+	    label[count] = s->ptr;
 	    count++;
 	}
     }
@@ -5815,23 +5845,18 @@ show_table_of_contents(void)
 	return;
     }
 
-    snprintf(prompt, sizeof(prompt), "TOC Jump (1-%d, e.g. 1): ", count);
-    input = inputStr(prompt, "");
-    if (input == NULL || *input == '\0') {
-	displayBuffer(Currentbuf, B_FORCE_REDRAW);
-	return;
-    }
-
-    choice = atoi(input);
-    if (choice >= 1 && choice <= count) {
-	gotoLine(Currentbuf, toc[choice - 1].linenumber);
-	Currentbuf->pos = 0;
-	arrangeCursor(Currentbuf);
-	displayBuffer(Currentbuf, B_FORCE_REDRAW);
-	disp_message(Sprintf("Jumped to: %s", toc[choice - 1].text)->ptr, TRUE);
-    } else {
-	disp_message("Invalid TOC number", TRUE);
-    }
+    label[count] = NULL;
+    TocV = 0;
+    new_option_menu(&TocMenu, label, &TocV, onTocSelect);
+    TocMenu.initial = 0;
+    x = (COLS - TocMenu.width) / 2;
+    if (x < 1) x = 1;
+    y = 2;
+    TocMenu.cursorX = Currentbuf->cursorX + Currentbuf->rootX;
+    TocMenu.cursorY = Currentbuf->cursorY + Currentbuf->rootY;
+    TocMenu.x = x;
+    TocMenu.y = y;
+    popup_menu(NULL, &TocMenu);
 }
 
 static int
@@ -5915,7 +5940,19 @@ yank_code_block(void)
     code = Strnew();
     for (l = start; l != NULL; l = l->next) {
 	if (l->lineBuf) {
-	    Strcat_charp(code, l->lineBuf);
+	    char *p = l->lineBuf;
+	    /* Strip leading line numbers like "  1 | ", "10: ", " 1 " */
+	    while (*p == ' ' || *p == '\t') p++;
+	    if (IS_DIGIT(*p)) {
+		char *q = p;
+		while (IS_DIGIT(*q)) q++;
+		if (*q == '|' || *q == ':' || *q == '\t' || *q == ' ') {
+		    q++;
+		    while (*q == ' ' || *q == '\t') q++;
+		    p = q;
+		}
+	    }
+	    Strcat_charp(code, p);
 	    Strcat_char(code, '\n');
 	    count++;
 	}
@@ -5925,9 +5962,9 @@ yank_code_block(void)
 
     if (code->length > 0) {
 	if (clipboard_write(code->ptr))
-	    disp_message(Sprintf("Yanked code block (%d lines) to clipboard", count)->ptr, TRUE);
+	    disp_message(Sprintf("Yanked %d lines of clean code to clipboard (pbcopy)", count)->ptr, TRUE);
 	else
-	    disp_message("Failed to copy code to clipboard", TRUE);
+	    disp_message("Clipboard copy failed (set W3M_CLIPBOARD_CMD)", TRUE);
     }
 }
 
@@ -6090,7 +6127,7 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
 	skip_to_main_content();
 	return;
     }
-    if (c == 'h' || c == 'H') {
+    if (c == 'h' || c == 'H' || c == 'o' || c == 'O') {
 	show_table_of_contents();
 	return;
     }
