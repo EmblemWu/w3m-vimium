@@ -2273,23 +2273,212 @@ DEFUN(ldfile, LOAD, "Open local file in a new buffer")
     cmd_loadfile(fn);
 }
 
-/* Load help file */
-DEFUN(ldhelp, HELP, "Show help panel")
-{
-#ifdef USE_HELP_CGI
-    char *lang;
-    int n;
-    Str tmp;
+typedef struct {
+    const char *category;
+    const char *key;
+    const char *desc;
+} VimiumHelpItem;
 
-    lang = AcceptLang;
-    n = strcspn(lang, ";, \t");
-    tmp = Sprintf("file:///$LIB/" HELP_CGI CGI_EXTENSION "?version=%s&lang=%s",
-		  Str_form_quote(Strnew_charp(w3m_version))->ptr,
-		  Str_form_quote(Strnew_charp_n(lang, n))->ptr);
-    cmd_loadURL(tmp->ptr, NULL, NO_REFERER, NULL);
-#else
-    cmd_loadURL(helpFile(HELP_FILE), NULL, NO_REFERER, NULL);
-#endif
+static VimiumHelpItem vimium_help_items[] = {
+    /* Navigation & Scrolling */
+    {"Navigation & Scrolling", "j / k", "Scroll down / up 1 line"},
+    {"Navigation & Scrolling", "d / u", "Scroll down / up half page (Ctrl-D / Ctrl-U)"},
+    {"Navigation & Scrolling", "SPC / b", "Scroll down / up full page (Ctrl-F / Ctrl-B)"},
+    {"Navigation & Scrolling", "h / l", "Scroll viewport left / right"},
+    {"Navigation & Scrolling", "gg / G", "Scroll to top / bottom of page"},
+    {"Navigation & Scrolling", "0 / $", "Scroll to beginning / end of line"},
+    {"Navigation & Scrolling", "( / )", "Jump history undo / redo"},
+
+    /* Link Hints */
+    {"Link Hints", "f", "Open link in current tab (badge hints)"},
+    {"Link Hints", "F", "Open link in new tab (badge hints)"},
+    {"Link Hints", "[ / ]", "Jump to first / last link on page"},
+    {"Link Hints", "Tab / S-Tab", "Focus next / previous link"},
+
+    /* Vomnibar, Search & URLs */
+    {"Vomnibar & Search", "o / O", "Open URL / Smart Search (bd, v2, so, crates, npm, brew)"},
+    {"Vomnibar & Search", "t", "Open URL / Smart Search in new tab"},
+    {"Vomnibar & Search", "p / P", "Open clipboard content in current / new tab"},
+    {"Vomnibar & Search", "ge / gE", "Edit current URL in current / new tab"},
+    {"Vomnibar & Search", "yy", "Copy current page URL to clipboard (pbcopy)"},
+    {"Vomnibar & Search", "gu / gU", "Go up one directory / Go to root domain"},
+
+    /* Tab Management */
+    {"Tab Management", "T", "Tab Vomnibar (Interactive Tab switcher & fuzzy filter)"},
+    {"Tab Management", "J / K", "Switch to right / left tab (also gt/gT, {/})"},
+    {"Tab Management", "x / X", "Close current tab / Restore closed tab"},
+    {"Tab Management", "gxa", "Close all other tabs (keep current)"},
+    {"Tab Management", "gx$", "Close all tabs to the right"},
+    {"Tab Management", "gx0", "Close all tabs to the left"},
+
+    /* Caret & Visual Mode */
+    {"Caret & Visual Mode", "c / C", "Toggle Caret navigation mode (h/j/k/l, w/b, y: yank)"},
+    {"Caret & Visual Mode", "v / V", "Enter Visual char / line selection mode (realtime mark)"},
+    {"Caret & Visual Mode", "o / O", "Swap selection anchor and cursor endpoint"},
+    {"Caret & Visual Mode", "y", "Copy selected text to clipboard (pbcopy) & exit"},
+    {"Caret & Visual Mode", "p / P", "Search selected text in current / new tab"},
+
+    /* In-Page Search & Misc */
+    {"Search & Misc", "/", "Search text forward on current page"},
+    {"Search & Misc", "n / N", "Jump to next / previous search match"},
+    {"Search & Misc", "* / #", "Search word under cursor backward / forward"},
+    {"Search & Misc", "H / L", "Go back / forward in browsing history"},
+    {"Search & Misc", "r / R", "Reload current page / Hard reload"},
+    {"Search & Misc", "Ctrl-H", "View history URL list"},
+    {"Search & Misc", "Shift-I", "View all embedded images list"},
+    {"Search & Misc", ":", "Open bottom command line"},
+    {"Search & Misc", "q / Q", "Quit w3m (q: confirm, Q: instant)"},
+    {"Search & Misc", "?", "Toggle this Help HUD / Cheat Sheet"},
+    {NULL, NULL, NULL}
+};
+
+/* Interactive Vimium Help HUD & Cheat Sheet (?) */
+DEFUN(ldhelp, HELP, "Show Vimium Help HUD & Cheat Sheet")
+{
+    int total = 0, filtered_total = 0;
+    VimiumHelpItem *filtered[64];
+    int top_idx = 0;
+    char filter[64] = "";
+    int flen = 0;
+    int i, c;
+
+    for (total = 0; vimium_help_items[total].key != NULL && total < 64; total++);
+
+    for (;;) {
+	filtered_total = 0;
+	for (i = 0; i < total; i++) {
+	    if (flen > 0) {
+		if (strcasestr(vimium_help_items[i].key, filter) == NULL &&
+		    strcasestr(vimium_help_items[i].desc, filter) == NULL &&
+		    strcasestr(vimium_help_items[i].category, filter) == NULL)
+		    continue;
+	    }
+	    filtered[filtered_total++] = &vimium_help_items[i];
+	}
+
+	int box_w = (COLS > 84) ? 80 : (COLS - 4);
+	if (box_w < 40) box_w = 40;
+	int left_x = (COLS > box_w) ? (COLS - box_w) / 2 : 1;
+	int max_rows = (LINES > 12) ? (LINES - 8) : (LINES - 4);
+	if (max_rows < 4) max_rows = 4;
+
+	if (top_idx > filtered_total - max_rows)
+	    top_idx = filtered_total - max_rows;
+	if (top_idx < 0)
+	    top_idx = 0;
+
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+
+	int start_y = (LINES > max_rows + 4) ? (LINES - (max_rows + 4)) / 2 : 1;
+	if (start_y < 1) start_y = 1;
+
+	/* Header */
+	move(start_y, left_x);
+	standout();
+	char title_buf[128];
+	snprintf(title_buf, sizeof(title_buf), " [w3m-vimium Cheat Sheet & Help HUD] (%d shortcuts) ", filtered_total);
+	addstr(title_buf);
+	for (int k = strlen(title_buf); k < box_w; k++)
+	    addChar(' ', 0);
+	standend();
+
+	const char *last_cat = "";
+	int cur_row = 0;
+
+	for (i = top_idx; i < filtered_total && cur_row < max_rows; i++, cur_row++) {
+	    VimiumHelpItem *item = filtered[i];
+	    int line_y = start_y + 1 + cur_row;
+	    move(line_y, left_x);
+
+	    if (strcmp(item->category, last_cat) != 0 && flen == 0) {
+		last_cat = item->category;
+		bold();
+		addstr(Sprintf(" ── %-20s ───────────────────────────────", item->category)->ptr);
+		boldend();
+		clrtoeolx();
+		cur_row++;
+		if (cur_row >= max_rows) break;
+		line_y = start_y + 1 + cur_row;
+		move(line_y, left_x);
+	    }
+
+	    bold();
+	    addstr(Sprintf("   %-16s", item->key)->ptr);
+	    boldend();
+	    addstr(Sprintf(" : %s", item->desc)->ptr);
+	    clrtoeolx();
+	}
+
+	/* Footer bar */
+	move(start_y + max_rows + 2, left_x);
+	standout();
+	if (flen > 0)
+	    addstr(Sprintf(" Filter: %-20s (j/k: scroll, d/u: page, /: filter, Esc/?: exit) ", filter)->ptr);
+	else
+	    addstr(Sprintf(" [j/k: scroll, d/u: half page, /: search filter, Esc/q/?: close] %*s", box_w - 65 > 0 ? box_w - 65 : 1, "")->ptr);
+	standend();
+
+	move(LINES - 1, 0);
+	refresh();
+
+	c = getch();
+	if (c == ESC_CODE || c == 'q' || c == '?' || c == CTRL_C || c == CTRL_G) {
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    break;
+	}
+	if (c == 'j' || c == CTRL_N) {
+	    if (top_idx + max_rows < filtered_total)
+		top_idx++;
+	    continue;
+	}
+	if (c == 'k' || c == CTRL_P) {
+	    if (top_idx > 0)
+		top_idx--;
+	    continue;
+	}
+	if (c == 'd' || c == 0x04) { /* Ctrl-D */
+	    top_idx += max_rows / 2;
+	    continue;
+	}
+	if (c == 'u' || c == 0x15) { /* Ctrl-U */
+	    top_idx -= max_rows / 2;
+	    if (top_idx < 0) top_idx = 0;
+	    continue;
+	}
+	if (c == ' ' || c == 0x06) { /* SPC / Ctrl-F */
+	    top_idx += max_rows;
+	    continue;
+	}
+	if (c == 'b' || c == 0x02) { /* b / Ctrl-B */
+	    top_idx -= max_rows;
+	    if (top_idx < 0) top_idx = 0;
+	    continue;
+	}
+	if (c == 'g') {
+	    int c2 = getch();
+	    if (c2 == 'g')
+		top_idx = 0;
+	    continue;
+	}
+	if (c == 'G') {
+	    top_idx = filtered_total - max_rows;
+	    if (top_idx < 0) top_idx = 0;
+	    continue;
+	}
+	if (c == '/') {
+	    char *f = inputStr("Filter help shortcuts: ", "");
+	    if (f && *f) {
+		strncpy(filter, f, sizeof(filter) - 1);
+		filter[sizeof(filter) - 1] = '\0';
+		flen = strlen(filter);
+	    } else {
+		filter[0] = '\0';
+		flen = 0;
+	    }
+	    top_idx = 0;
+	    continue;
+	}
+    }
 }
 
 static void
