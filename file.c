@@ -20,6 +20,7 @@
 #include "parsetagx.h"
 #include "local.h"
 #include "regex.h"
+#include "math_render.h"
 
 #ifndef max
 #define max(a,b)        ((a) > (b) ? (a) : (b))
@@ -3302,8 +3303,21 @@ process_img(struct parsed_tag *tag, int width)
     if (!parsedtag_get_value(tag, ATTR_SRC, &p))
 	return tmp;
     p = url_encode(remove_space(p), cur_baseURL, cur_document_charset);
+    int is_math_formula = 0;
     q = NULL;
     parsedtag_get_value(tag, ATTR_ALT, &q);
+    if (q) {
+	char *m = render_math_latex(q);
+	if (m != q) {
+	    is_math_formula = 1;
+#ifdef USE_M17N
+	    Str m_str = wc_Str_conv(Strnew_charp(m), WC_CES_UTF_8, InnerCharset);
+	    q = m_str->ptr;
+#else
+	    q = m;
+#endif
+	}
+    }
     if (!pseudoInlines && (q == NULL || (*q == '\0' && ignore_null_img_alt)))
 	return tmp;
     t = q;
@@ -3511,6 +3525,10 @@ process_img(struct parsed_tag *tag, int width)
     if (q != NULL && *q == '\0' && ignore_null_img_alt)
 	q = NULL;
     if (q != NULL) {
+	if (is_math_formula) {
+	    Strcat_charp(tmp, html_quote(q));
+	    goto img_end;
+	}
 	n = get_strwidth(q);
 #ifdef USE_IMAGE
 	if (use_image) {
