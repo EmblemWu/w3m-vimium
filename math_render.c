@@ -160,9 +160,10 @@ static int is_latex_math(const char *s)
 	strstr(s, "\\sum") || strstr(s, "\\int") || strstr(s, "\\begin{") ||
 	strstr(s, "\\mathbf") || strstr(s, "\\mathbb") || strstr(s, "\\operatorname") ||
 	strstr(s, "\\alpha") || strstr(s, "\\beta") || strstr(s, "\\geq") ||
-	strstr(s, "\\leq") || strstr(s, "\\in") || strstr(s, "\\forall") ||
+	strstr(s, "\\leq") || strstr(s, "\\le") || strstr(s, "\\ge") ||
+	strstr(s, "\\in") || strstr(s, "\\forall") ||
 	strstr(s, "\\exists") || strstr(s, "\\times") || strstr(s, "\\sqrt") ||
-	strstr(s, "\\partial") || strstr(s, "\\infty"))
+	strstr(s, "\\partial") || strstr(s, "\\infty") || strstr(s, "_{") || strstr(s, "^{"))
 	return 1;
     return 0;
 }
@@ -179,6 +180,10 @@ static char *extract_braced(const char **p_ptr)
     const char *start = p;
     int depth = 1;
     while (*p && depth > 0) {
+	if (*p == '\\' && (p[1] == '{' || p[1] == '}')) {
+	    p += 2;
+	    continue;
+	}
 	if (*p == '{')
 	    depth++;
 	else if (*p == '}')
@@ -197,14 +202,69 @@ static char *extract_braced(const char **p_ptr)
     return buf;
 }
 
+static void render_math_internal(const char *src, Str out);
+
+/* Convert intermediate string to Unicode subscripts */
+static void append_as_subscript(const char *s, Str out)
+{
+    const char *p = s;
+    while (*p) {
+        /* Check if it's already a UTF-8 multi-byte symbol like ≤ or ∈ */
+        if ((unsigned char)*p >= 0x80) {
+            /* Multi-byte sequence: copy directly */
+            int len = 1;
+            if (((unsigned char)*p & 0xE0) == 0xC0) len = 2;
+            else if (((unsigned char)*p & 0xF0) == 0xE0) len = 3;
+            else if (((unsigned char)*p & 0xF8) == 0xF0) len = 4;
+            for (int i = 0; i < len && *p; i++) {
+                Strcat_char(out, *p++);
+            }
+            continue;
+        }
+
+        const char *sub = get_subscript_char(*p);
+        if (sub) {
+            Strcat_charp(out, sub);
+        } else {
+            Strcat_char(out, *p);
+        }
+        p++;
+    }
+}
+
+/* Convert intermediate string to Unicode superscripts */
+static void append_as_superscript(const char *s, Str out)
+{
+    const char *p = s;
+    while (*p) {
+        if ((unsigned char)*p >= 0x80) {
+            int len = 1;
+            if (((unsigned char)*p & 0xE0) == 0xC0) len = 2;
+            else if (((unsigned char)*p & 0xF0) == 0xE0) len = 3;
+            else if (((unsigned char)*p & 0xF8) == 0xF0) len = 4;
+            for (int i = 0; i < len && *p; i++) {
+                Strcat_char(out, *p++);
+            }
+            continue;
+        }
+
+        const char *sup = get_superscript_char(*p);
+        if (sup) {
+            Strcat_charp(out, sup);
+        } else {
+            Strcat_char(out, *p);
+        }
+        p++;
+    }
+}
+
 static void render_math_internal(const char *src, Str out)
 {
     const char *p = src;
 
     while (*p) {
-	/* Skip whitespace cleanly */
+	/* Grouping braces */
 	if (*p == '{') {
-	    /* Check if it's a wrapper like {\displaystyle ...} */
 	    if (strncmp(p, "{\\displaystyle", 14) == 0) {
 		p += 14;
 		continue;
@@ -223,6 +283,18 @@ static void render_math_internal(const char *src, Str out)
 
 	/* Handle LaTeX macro commands */
 	if (*p == '\\') {
+	    /* Escaped set braces: \{ and \} */
+	    if (p[1] == '{') {
+		Strcat_charp(out, "{");
+		p += 2;
+		continue;
+	    }
+	    if (p[1] == '}') {
+		Strcat_charp(out, "}");
+		p += 2;
+		continue;
+	    }
+
 	    /* Spacing macros */
 	    if (p[1] == ',' || p[1] == ';' || p[1] == '!' || p[1] == ' ') {
 		Strcat_char(out, ' ');
@@ -241,7 +313,7 @@ static void render_math_internal(const char *src, Str out)
 	    }
 
 	    /* Escaped characters */
-	    if (p[1] == '{' || p[1] == '}' || p[1] == '_' || p[1] == '%' || p[1] == '&' || p[1] == '$') {
+	    if (p[1] == '_' || p[1] == '%' || p[1] == '&' || p[1] == '$') {
 		Strcat_char(out, p[1]);
 		p += 2;
 		continue;
@@ -271,7 +343,7 @@ static void render_math_internal(const char *src, Str out)
 	    if (strncmp(p, "\\bigl", 5) == 0 || strncmp(p, "\\bigr", 5) == 0 ||
 		strncmp(p, "\\Bigl", 5) == 0 || strncmp(p, "\\Bigr", 5) == 0 ||
 		strncmp(p, "\\biggl", 6) == 0 || strncmp(p, "\\biggr", 6) == 0) {
-		while (*p && !isspace((unsigned char)*p) && *p != '(' && *p != ')' && *p != '[' && *p != ']')
+		while (*p && !isspace((unsigned char)*p) && *p != '(' && *p != ')' && *p != '[' && *p != ']' && *p != '{' && *p != '}' && *p != '|')
 		    p++;
 		continue;
 	    }
@@ -373,6 +445,10 @@ static void render_math_internal(const char *src, Str out)
 			Strcat_char(out, ' ');
 			Strcat_charp(out, op_symbols[i].utf8);
 			Strcat_char(out, ' ');
+		    } else if (strcmp(op_symbols[i].utf8, "|") == 0) {
+			Strcat_char(out, ' ');
+			Strcat_charp(out, "|");
+			Strcat_char(out, ' ');
 		    } else {
 			Strcat_charp(out, op_symbols[i].utf8);
 		    }
@@ -394,24 +470,16 @@ static void render_math_internal(const char *src, Str out)
 	if (*p == '_') {
 	    p++;
 	    if (*p == '{') {
-		p++;
-		while (*p && *p != '}') {
-		    const char *sub = get_subscript_char(*p);
-		    if (sub)
-			Strcat_charp(out, sub);
-		    else
-			Strcat_char(out, *p);
-		    p++;
+		char *inner = extract_braced(&p);
+		if (inner) {
+		    Str s_sub = Strnew();
+		    render_math_internal(inner, s_sub);
+		    append_as_subscript(s_sub->ptr, out);
+		    free(inner);
 		}
-		if (*p == '}') p++;
 	    } else if (*p) {
-		const char *sub = get_subscript_char(*p);
-		if (sub)
-		    Strcat_charp(out, sub);
-		else {
-		    Strcat_char(out, '_');
-		    Strcat_char(out, *p);
-		}
+		char single[2] = {*p, '\0'};
+		append_as_subscript(single, out);
 		p++;
 	    }
 	    continue;
@@ -421,24 +489,16 @@ static void render_math_internal(const char *src, Str out)
 	if (*p == '^') {
 	    p++;
 	    if (*p == '{') {
-		p++;
-		while (*p && *p != '}') {
-		    const char *sup = get_superscript_char(*p);
-		    if (sup)
-			Strcat_charp(out, sup);
-		    else
-			Strcat_char(out, *p);
-		    p++;
+		char *inner = extract_braced(&p);
+		if (inner) {
+		    Str s_sup = Strnew();
+		    render_math_internal(inner, s_sup);
+		    append_as_superscript(s_sup->ptr, out);
+		    free(inner);
 		}
-		if (*p == '}') p++;
 	    } else if (*p) {
-		const char *sup = get_superscript_char(*p);
-		if (sup)
-		    Strcat_charp(out, sup);
-		else {
-		    Strcat_char(out, '^');
-		    Strcat_char(out, *p);
-		}
+		char single[2] = {*p, '\0'};
+		append_as_superscript(single, out);
 		p++;
 	    }
 	    continue;
@@ -460,22 +520,5 @@ char *render_math_latex(const char *src)
 
     Str out = Strnew();
     render_math_internal(src, out);
-
-    /* Post-clean multiple spaces */
-    Str clean = Strnew();
-    int last_was_space = 0;
-    for (int i = 0; i < out->length; i++) {
-	char c = out->ptr[i];
-	if (isspace((unsigned char)c)) {
-	    if (!last_was_space && clean->length > 0) {
-		Strcat_char(clean, ' ');
-		last_was_space = 1;
-	    }
-	} else {
-	    Strcat_char(clean, c);
-	    last_was_space = 0;
-	}
-    }
-
-    return clean->ptr;
+    return out->ptr;
 }

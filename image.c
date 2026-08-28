@@ -58,52 +58,25 @@ int get_pixel_per_cell(int *ppc, int *ppl);
 static int
 getCharSize(void)
 {
-    FILE *f;
-    Str tmp;
-    int w = 0, h = 0;
+    int ppc = 0, ppl = 0;
 
     set_environ("W3M_TTY", ttyname_tty());
 
-    if (enable_inline_image) {
-	int ppc = 0, ppl = 0;
-
-	if (get_pixel_per_cell(&ppc, &ppl) && ppc > 0 && ppl > 0) {
-	    pixel_per_char_i = ppc ;
-	    pixel_per_line_i = ppl ;
-	    pixel_per_char = (double)ppc;
-	    pixel_per_line = (double)ppl;
-	}
-	else {
-	    if (pixel_per_char <= 0)
-		pixel_per_char = 9.0;
-	    if (pixel_per_line <= 0)
-		pixel_per_line = 18.0;
-	    pixel_per_char_i = (int)pixel_per_char;
-	    pixel_per_line_i = (int)pixel_per_line;
-	}
-
-	return  TRUE;
+    if (get_pixel_per_cell(&ppc, &ppl) && ppc > 0 && ppl > 0) {
+	pixel_per_char_i = ppc ;
+	pixel_per_line_i = ppl ;
+	pixel_per_char = (double)ppc;
+	pixel_per_line = (double)ppl;
+    }
+    else {
+	if (pixel_per_char <= 0)
+	    pixel_per_char = 9.0;
+	if (pixel_per_line <= 0)
+	    pixel_per_line = 18.0;
+	pixel_per_char_i = (int)pixel_per_char;
+	pixel_per_line_i = (int)pixel_per_line;
     }
 
-    tmp = Strnew();
-    if (!strchr(Imgdisplay, '/'))
-	Strcat_m_charp(tmp, w3m_auxbin_dir(), "/", NULL);
-    Strcat_m_charp(tmp, Imgdisplay, " -test 2>/dev/null", NULL);
-    f = popen(tmp->ptr, "r");
-    if (!f)
-	return FALSE;
-    while (fscanf(f, "%d %d", &w, &h) < 0) {
-	if (feof(f))
-	    break;
-    }
-    pclose(f);
-
-    if (!(w > 0 && h > 0))
-	return FALSE;
-    if (!set_pixel_per_char)
-	pixel_per_char = (int)(1.0 * w / COLS + 0.5);
-    if (!set_pixel_per_line)
-	pixel_per_line = (int)(1.0 * h / LINES + 0.5);
     return TRUE;
 }
 
@@ -755,21 +728,7 @@ getImageSize(ImageCache * cache)
     if (modern_get_image_size(cache->file, &w, &h))
 	goto got_image_size;
 
-    tmp = Strnew();
-    if (!strchr(Imgdisplay, '/'))
-	Strcat_m_charp(tmp, w3m_auxbin_dir(), "/", NULL);
-    Strcat_m_charp(tmp, Imgdisplay, " -size ", shell_quote(cache->file), NULL);
-    f = popen(tmp->ptr, "r");
-    if (!f)
-	return FALSE;
-    while (fscanf(f, "%u %u", &w, &h) < 0) {
-	if (feof(f))
-	    break;
-    }
-    pclose(f);
-
-    if (!(w > 0 && h > 0))
-	return FALSE;
+    return FALSE;
 
 got_image_size:
     w = (int)(w * image_scale / 100 + 0.5);
