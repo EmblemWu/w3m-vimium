@@ -1519,16 +1519,24 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
 	if (url_user_agent)
 	   Strcat_charp(s, url_user_agent);
 	else if (UserAgent == NULL || *UserAgent == '\0')
-            Strcat_charp(s, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 w3m-vimium");
+            Strcat_charp(s, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36");
         else
             Strcat_charp(s, UserAgent);
         Strcat_charp(s, "\r\n");
     }
 
+    /* Modern browser client hints & fetch metadata to bypass CDN WAFs */
+    Strcat_charp(s, "sec-ch-ua: \"Not(A:Brand\";v=\"99\", \"Google Chrome\";v=\"133\", \"Chromium\";v=\"133\"\r\n");
+    Strcat_charp(s, "sec-ch-ua-mobile: ?0\r\n");
+    Strcat_charp(s, "sec-ch-ua-platform: \"macOS\"\r\n");
+    Strcat_charp(s, "Sec-Fetch-Site: cross-site\r\n");
+    Strcat_charp(s, "Sec-Fetch-Mode: no-cors\r\n");
+    Strcat_charp(s, "Sec-Fetch-Dest: image\r\n");
+
     if (AcceptMedia && *AcceptMedia)
 	Strcat_m_charp(s, "Accept: ", AcceptMedia, "\r\n", NULL);
     else
-	Strcat_charp(s, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n");
+	Strcat_charp(s, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8\r\n");
 
     if (AcceptEncoding && *AcceptEncoding)
 	Strcat_m_charp(s, "Accept-Encoding: ", AcceptEncoding, "\r\n", NULL);

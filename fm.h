@@ -997,7 +997,7 @@ global int activeImage init(FALSE);
 global int displayImage init(TRUE);
 global int autoImage init(TRUE);
 global int useExtImageViewer init(TRUE);
-global int maxLoadImage init(4);
+global int maxLoadImage init(16);
 global int image_map_list init(TRUE);
 #else
 global int displayImage init(FALSE);	/* XXX: emacs-w3m use display_image=off */

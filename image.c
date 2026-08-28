@@ -320,7 +320,7 @@ clearImage()
 /* load image */
 
 #ifndef MAX_LOAD_IMAGE
-#define MAX_LOAD_IMAGE 8
+#define MAX_LOAD_IMAGE 24
 #endif
 static int n_load_image = 0;
 static Hash_sv *image_hash = NULL;
@@ -544,6 +544,8 @@ loadImage(Buffer *buf, int flag)
 	     * setup_child(TRUE, 0, -1);
 	     */
 	    setup_child(FALSE, 0, -1);
+	    signal(SIGALRM, (void (*)(int))exit);
+	    alarm(6); /* 6s fast-fail limit per image to prevent blocking queue */
 	    image_source = cache->file;
 	    loadGeneralFile(cache->url, cache->current, NULL, 0, NULL);
 	    /* TODO make sure removing this didn't break anything
