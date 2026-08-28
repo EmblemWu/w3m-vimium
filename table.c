@@ -431,7 +431,6 @@ visible_length(char *str)
     int prev_status = status;
     Str tagbuf = Strnew();
     char *t, *r2;
-    int amp_len = 0;
 
     while (*str) {
 	prev_status = status;
@@ -460,11 +459,9 @@ visible_length(char *str)
 	    if (prev_status == R_ST_NORMAL) {
 		Strclear(tagbuf);
 		len--;
-		amp_len = 0;
 	    }
 	    else {
 		PUSH_TAG(str, n);
-		amp_len++;
 	    }
 	}
 	else if (status == R_ST_NORMAL && prev_status == R_ST_AMP) {

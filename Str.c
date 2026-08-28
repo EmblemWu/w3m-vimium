@@ -18,9 +18,6 @@
 #include <gc.h>
 #include <stdarg.h>
 #include <string.h>
-#ifdef __EMX__			/* or include "fm.h" for HAVE_BCOPY? */
-#include <strings.h>
-#endif
 #include "Str.h"
 #include "myctype.h"
 
@@ -89,7 +86,7 @@ Strnew_charp(const char *p)
 	exit(1);
     x->area_size = n;
     x->length = len;
-    bcopy((void *)p, (void *)x->ptr, len);
+    memcpy(x->ptr, p, len);
     x->ptr[x->length] = '\0';
     return x;
 }
@@ -130,7 +127,7 @@ Strnew_charp_n(const char *p, int n)
 	exit(1);
     x->area_size = n + 1;
     x->length = len;
-    bcopy((void *)p, (void *)x->ptr, len);
+    memcpy(x->ptr, p, len);
     x->ptr[x->length] = '\0';
     return x;
 }
@@ -169,7 +166,7 @@ Strcopy(Str x, Str y)
 	    exit(1);
 	x->area_size = y->length + 1;
     }
-    bcopy((void *)y->ptr, (void *)x->ptr, y->length + 1);
+    memcpy(x->ptr, y->ptr, y->length + 1);
     x->length = y->length;
 }
 
@@ -193,7 +190,7 @@ Strcopy_charp(Str x, const char *y)
 	    exit(1);
 	x->area_size = len + 1;
     }
-    bcopy((void *)y, (void *)x->ptr, len);
+    memcpy(x->ptr, y, len);
     x->ptr[len] = '\0';
     x->length = len;
 }
@@ -217,7 +214,7 @@ Strcopy_charp_n(Str x, const char *y, int n)
 	    exit(1);
 	x->area_size = len + 1;
     }
-    bcopy((void *)y, (void *)x->ptr, len);
+    memcpy(x->ptr, y, len);
     x->ptr[len] = '\0';
     x->length = len;
 }
@@ -248,7 +245,7 @@ Strcat_charp_n(Str x, const char *y, int n)
 	    exit(1);
 	x->area_size = newlen;
     }
-    bcopy((void *)y, (void *)&x->ptr[x->length], n);
+    memcpy(&x->ptr[x->length], y, n);
     x->length += n;
     x->ptr[x->length] = '\0';
 }
@@ -493,107 +490,36 @@ Stralign_center(Str s, int width)
     return n;
 }
 
-#define SP_NORMAL 0
-#define SP_PREC   1
-#define SP_PREC2  2
-
+/*
+ * Modern Sprintf implementation using C99/POSIX standard vsnprintf
+ * with two-pass exact allocation and va_copy.
+ * Perfectly handles all format specifiers (%*s, %lld, %zu, %-20s, etc.)
+ * without buffer overflow or custom parsing bugs.
+ */
 Str
 Sprintf(char *fmt, ...)
 {
-    int len = 0;
-    int status = SP_NORMAL;
-    int p = 0;
-    char *f;
+    va_list ap, ap_copy;
+    int needed;
     Str s;
-    va_list ap;
+
+    if (fmt == NULL)
+	return Strnew();
 
     va_start(ap, fmt);
-    for (f = fmt; *f; f++) {
-      redo:
-	switch (status) {
-	case SP_NORMAL:
-	    if (*f == '%') {
-		status = SP_PREC;
-		p = 0;
-	    }
-	    else
-		len++;
-	    break;
-	case SP_PREC:
-	    if (IS_ALPHA(*f)) {
-		/* conversion char. */
-		int vi;
-		char *vs;
+    va_copy(ap_copy, ap);
+    needed = vsnprintf(NULL, 0, fmt, ap_copy);
+    va_end(ap_copy);
 
-		switch (*f) {
-		case 'l':
-		case 'h':
-		case 'L':
-		case 'w':
-		    continue;
-		case 'd':
-		case 'i':
-		case 'o':
-		case 'x':
-		case 'X':
-		case 'u':
-		    vi = va_arg(ap, int);
-		    len += (p > 0) ? p : 10;
-		    break;
-		case 'f':
-		case 'g':
-		case 'e':
-		case 'G':
-		case 'E':
-		    va_arg(ap, double);
-		    len += (p > 0) ? p : 15;
-		    break;
-		case 'c':
-		    len += 1;
-		    vi = va_arg(ap, int);
-		    break;
-		case 's':
-		    vs = va_arg(ap, char *);
-		    vi = strlen(vs);
-		    len += (p > vi) ? p : vi;
-		    break;
-		case 'p':
-		    va_arg(ap, void *);
-		    len += 10;
-		    break;
-		case 'n':
-		    va_arg(ap, void *);
-		    break;
-		}
-		status = SP_NORMAL;
-	    }
-	    else if (IS_DIGIT(*f))
-		p = p * 10 + *f - '0';
-	    else if (*f == '.')
-		status = SP_PREC2;
-	    else if (*f == '%') {
-		status = SP_NORMAL;
-		len++;
-	    }
-	    break;
-	case SP_PREC2:
-	    if (IS_ALPHA(*f)) {
-		status = SP_PREC;
-		goto redo;
-	    }
-	    break;
-	}
+    if (needed < 0) {
+	va_end(ap);
+	return Strnew();
     }
+
+    s = Strnew_size(needed);
+    vsnprintf(s->ptr, needed + 1, fmt, ap);
     va_end(ap);
-    s = Strnew_size(len * 2);
-    va_start(ap, fmt);
-    vsprintf(s->ptr, fmt, ap);
-    va_end(ap);
-    s->length = strlen(s->ptr);
-    if (s->length > len * 2) {
-	fprintf(stderr, "Sprintf: string too long\n");
-	exit(1);
-    }
+    s->length = needed;
     return s;
 }
 
