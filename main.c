@@ -4674,6 +4674,59 @@ DEFUN(tabSmartURL, TAB_OPEN_URL, "Open URL or search query in a new tab (Vimium-
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
 }
 
+DEFUN(editCurrentURL, EDIT_URL, "Edit current URL in place (Vimium-like)")
+{
+    char *cur_url;
+    char *input;
+    ParsedURL p_url, *current;
+    Buffer *cur_buf = Currentbuf;
+
+    if (Currentbuf == NULL)
+	return;
+    cur_url = parsedURL2Str(&Currentbuf->currentURL)->ptr;
+    input = inputStrHist("Edit URL: ", cur_url ? cur_url : "", URLHist);
+    if (input == NULL || *input == '\0')
+	return;
+    SKIP_BLANKS(input);
+    input = smart_url_or_search(input);
+    if (input == NULL || *input == '\0')
+	return;
+
+    current = baseURL(Currentbuf);
+    parseURL2(input, &p_url, current);
+    pushHashHist(URLHist, parsedURL2Str(&p_url)->ptr);
+    cmd_loadURL(input, current, NO_REFERER, NULL);
+    if (Currentbuf != cur_buf)
+	pushHashHist(URLHist, parsedURL2Str(&Currentbuf->currentURL)->ptr);
+}
+
+DEFUN(tabEditCurrentURL, TAB_EDIT_URL, "Edit current URL and open in new tab (Vimium-like)")
+{
+    char *cur_url;
+    char *input;
+    Buffer *buf;
+
+    if (Currentbuf == NULL)
+	return;
+    cur_url = parsedURL2Str(&Currentbuf->currentURL)->ptr;
+    input = inputStrHist("Edit in new tab: ", cur_url ? cur_url : "", URLHist);
+    if (input == NULL || *input == '\0')
+	return;
+    SKIP_BLANKS(input);
+    input = smart_url_or_search(input);
+    if (input == NULL || *input == '\0')
+	return;
+
+    _newT();
+    buf = Currentbuf;
+    cmd_loadURL(input, baseURL(Currentbuf), NO_REFERER, NULL);
+    if (buf != Currentbuf)
+	delBuffer(buf);
+    else
+	deleteTab(CurrentTab);
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+}
+
 static BufferPoint mark_table[26];
 static int mark_valid[26] = {0};
 
@@ -4772,6 +4825,202 @@ move_current_tab_right(void)
     calcTabPos();
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
     disp_message("Moved tab right", TRUE);
+}
+
+static void
+close_other_tabs(void)
+{
+    TabBuffer *t, *next;
+    int closed = 0;
+
+    if (nTab <= 1 || CurrentTab == NULL) {
+	disp_message("No other tabs to close", TRUE);
+	return;
+    }
+
+    t = FirstTab;
+    while (t != NULL) {
+	next = t->nextTab;
+	if (t != CurrentTab) {
+	    deleteTab(t);
+	    closed++;
+	}
+	t = next;
+    }
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    disp_message(Sprintf("Closed %d other tab(s)", closed)->ptr, TRUE);
+}
+
+static void
+close_tabs_to_right(void)
+{
+    TabBuffer *t, *next;
+    int closed = 0;
+
+    if (CurrentTab == NULL || CurrentTab->nextTab == NULL) {
+	disp_message("No tabs to the right", TRUE);
+	return;
+    }
+
+    t = CurrentTab->nextTab;
+    while (t != NULL) {
+	next = t->nextTab;
+	deleteTab(t);
+	closed++;
+	t = next;
+    }
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    disp_message(Sprintf("Closed %d tab(s) to the right", closed)->ptr, TRUE);
+}
+
+static void
+close_tabs_to_left(void)
+{
+    TabBuffer *t, *prev;
+    int closed = 0;
+
+    if (CurrentTab == NULL || CurrentTab->prevTab == NULL) {
+	disp_message("No tabs to the left", TRUE);
+	return;
+    }
+
+    t = CurrentTab->prevTab;
+    while (t != NULL) {
+	prev = t->prevTab;
+	deleteTab(t);
+	closed++;
+	t = prev;
+    }
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    disp_message(Sprintf("Closed %d tab(s) to the left", closed)->ptr, TRUE);
+}
+
+DEFUN(tabVomnibar, TAB_VOMNIBAR, "Interactive Tab Switcher & Search (Vimium-like)")
+{
+    TabBuffer *t, *tab_list[64];
+    int n = 0, sel = 0, i;
+    char filter[64] = "";
+    int flen = 0;
+    int c;
+
+    if (FirstTab == NULL) {
+	disp_message("No tabs open", TRUE);
+	return;
+    }
+
+    for (;;) {
+	n = 0;
+	for (t = FirstTab; t != NULL && n < 64; t = t->nextTab) {
+	    if (flen > 0 && t->currentBuffer) {
+		char *title = t->currentBuffer->buffername ? t->currentBuffer->buffername : "";
+		char *url = parsedURL2Str(&t->currentBuffer->currentURL)->ptr;
+		if (strcasestr(title, filter) == NULL && (url == NULL || strcasestr(url, filter) == NULL))
+		    continue;
+	    }
+	    tab_list[n] = t;
+	    if (t == CurrentTab && flen == 0 && sel == 0)
+		sel = n;
+	    n++;
+	}
+
+	if (sel >= n)
+	    sel = (n > 0) ? n - 1 : 0;
+	if (sel < 0)
+	    sel = 0;
+
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+
+	int start_y = (LINES > n + 4) ? (LINES - (n + 4)) / 2 : 1;
+	int max_disp = (LINES - 4 > 0) ? LINES - 4 : 1;
+	if (start_y < 1) start_y = 1;
+
+	move(start_y, 2);
+	standout();
+	addstr(Sprintf(" [Tab Switcher / Vomnibar] %d tabs (j/k: nav, Enter: switch, d/x: close, /: filter, Esc: quit) ", n)->ptr);
+	standend();
+
+	for (i = 0; i < n && i < max_disp; i++) {
+	    TabBuffer *tb = tab_list[i];
+	    Buffer *b = tb->currentBuffer;
+	    char *title = (b && b->buffername) ? b->buffername : "untitled";
+	    char *url = (b) ? parsedURL2Str(&b->currentURL)->ptr : "";
+	    int line_y = start_y + 1 + i;
+	    move(line_y, 2);
+
+	    if (i == sel) {
+		standout();
+		addstr(Sprintf(" > [%d]%s %-25.25s  %s ", i + 1, (tb == CurrentTab) ? "*" : " ", title, url)->ptr);
+		standend();
+	    } else {
+		if (tb == CurrentTab) {
+		    bold();
+		    addstr(Sprintf(" * [%d]  %-25.25s  %s ", i + 1, title, url)->ptr);
+		    boldend();
+		} else {
+		    addstr(Sprintf("   [%d]  %-25.25s  %s ", i + 1, title, url)->ptr);
+		}
+	    }
+	}
+
+	move(LINES - 1, 0);
+	if (flen > 0)
+	    message(Sprintf("Filter tabs: %s_ (Backspace to clear, Enter to jump, Esc to cancel)", filter)->ptr, 0, 0);
+	else
+	    message("Type tab # (1-9), j/k to move, Enter to jump, d/x to close, / to filter: ", 0, 0);
+	refresh();
+
+	c = getch();
+	if (c == ESC_CODE || c == 'q' || c == CTRL_C || c == CTRL_G) {
+	    break;
+	}
+	if (c == '\r' || c == '\n') {
+	    if (n > 0 && sel < n && tab_list[sel] != NULL) {
+		CurrentTab = tab_list[sel];
+	    }
+	    break;
+	}
+	if (c >= '1' && c <= '9' && flen == 0) {
+	    int idx = c - '1';
+	    if (idx < n && tab_list[idx] != NULL) {
+		CurrentTab = tab_list[idx];
+		break;
+	    }
+	}
+	if (c == 'j' || c == CTRL_N) {
+	    if (sel + 1 < n) sel++;
+	    continue;
+	}
+	if (c == 'k' || c == CTRL_P) {
+	    if (sel > 0) sel--;
+	    continue;
+	}
+	if (c == 'x' || c == 'd' || c == 'D') {
+	    if (n > 0 && sel < n && tab_list[sel] != NULL) {
+		TabBuffer *to_del = tab_list[sel];
+		if (nTab > 1) {
+		    deleteTab(to_del);
+		    disp_message("Closed tab", TRUE);
+		} else {
+		    disp_message("Cannot close last remaining tab", TRUE);
+		}
+	    }
+	    continue;
+	}
+	if (c == '/') {
+	    char *f = inputStr("Filter tabs: ", "");
+	    if (f && *f) {
+		strncpy(filter, f, sizeof(filter) - 1);
+		filter[sizeof(filter) - 1] = '\0';
+		flen = (int)strlen(filter);
+	    } else {
+		filter[0] = '\0';
+		flen = 0;
+	    }
+	    sel = 0;
+	    continue;
+	}
+    }
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
 }
 
 static char *
@@ -5346,6 +5595,30 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
     }
     if (c == 'C') {
 	goto_code_block(-1);
+	return;
+    }
+    if (c == 'e') {
+	editCurrentURL();
+	return;
+    }
+    if (c == 'E') {
+	tabEditCurrentURL();
+	return;
+    }
+    if (c == 'x') {
+	int sub;
+	message("Close tabs [a: other, $: right, 0: left]: ", 0, 0);
+	refresh();
+	sub = getch();
+	if (sub == 'a' || sub == 'A' || sub == 'o') {
+	    close_other_tabs();
+	}
+	else if (sub == '$' || sub == '>' || sub == 'r' || sub == 'R') {
+	    close_tabs_to_right();
+	}
+	else if (sub == '0' || sub == '<' || sub == 'l' || sub == 'L' || sub == '^') {
+	    close_tabs_to_left();
+	}
 	return;
     }
     if (c == 'S') {
