@@ -854,5 +854,7 @@ extern void incURLNumber(void);
 extern void decURLNumber(void);
 extern void vimiumRBracket(void);
 extern void vimiumLBracket(void);
+extern void vimiumShiftLeft(void);
+extern void vimiumShiftRight(void);
 extern void hintYankMd(void);
 extern int check_input_timeout_ms(int ms);

@@ -118,6 +118,8 @@ static void _goLine(char *);
 static void _newT(void);
 static void followTab(TabBuffer * tab);
 static void moveTab(TabBuffer * t, TabBuffer * t2, int right);
+static void move_current_tab_left(void);
+static void move_current_tab_right(void);
 static void _nextA(int);
 static void _prevA(int);
 static int check_target = TRUE;
@@ -2288,20 +2290,21 @@ static VimiumHelpItem vimium_help_items[] = {
     {"Navigation & Scrolling", "h / l", "Scroll viewport left / right"},
     {"Navigation & Scrolling", "gg / G", "Scroll to top / bottom of page"},
     {"Navigation & Scrolling", "0 / $", "Scroll to beginning / end of line"},
-    {"Navigation & Scrolling", "( / )", "Jump history undo / redo"},
+    {"Navigation & Scrolling", "( / )", "Jump history undo / redo (also Ctrl-O)"},
     {"Navigation & Scrolling", "]] / [[", "Follow Next / Previous pagination link"},
     {"Navigation & Scrolling", "]a / [a", "Increment / Decrement number in current URL (also g+/g-)"},
     {"Navigation & Scrolling", "]h / [h", "Jump to next / previous heading (also gj/gk)"},
     {"Navigation & Scrolling", "]c / [c", "Jump to next / previous code block (also gc/gC)"},
 
-    /* Link Hints */
-    {"Link Hints", "f", "Open link in current tab (badge hints)"},
-    {"Link Hints", "F", "Open link in new tab (badge hints)"},
-    {"Link Hints", "yf", "Hint link and copy URL to clipboard"},
-    {"Link Hints", "yF / ym", "Hint link and copy Markdown [Title](URL) to clipboard"},
-    {"Link Hints", "yi", "Hint image and copy Image URL to clipboard"},
-    {"Link Hints", "yd / df", "Hint link and download target in background"},
-    {"Link Hints", "Tab / S-Tab", "Focus next / previous link"},
+    /* Link Hints & Follow */
+    {"Link Hints & Follow", "f", "Open link in current tab (badge hints)"},
+    {"Link Hints & Follow", "F", "Open link in new tab (badge hints)"},
+    {"Link Hints & Follow", "yf", "Hint link and copy URL to clipboard"},
+    {"Link Hints & Follow", "yF / ym", "Hint link and copy Markdown [Title](URL) to clipboard"},
+    {"Link Hints & Follow", "yi", "Hint image and copy Image URL to clipboard"},
+    {"Link Hints & Follow", "yd / df", "Hint link and download target in background"},
+    {"Link Hints & Follow", "gy / gY", "Copy URL / Markdown link under cursor to clipboard"},
+    {"Link Hints & Follow", "Tab / S-Tab", "Focus next / previous link"},
 
     /* Vomnibar, Search & URLs */
     {"Vomnibar & Search", "b / o", "Open Vomnibar (Tabs / Bookmarks / History / Search)"},
@@ -2309,17 +2312,24 @@ static VimiumHelpItem vimium_help_items[] = {
     {"Vomnibar & Search", "ga / gb", "Instant bookmark current page / View bookmarks"},
     {"Vomnibar & Search", "t", "Open URL / Smart Search in new tab"},
     {"Vomnibar & Search", "p / P", "Open clipboard content in current / new tab"},
-    {"Vomnibar & Search", "ge / gE", "Edit current URL in current / new tab"},
-    {"Vomnibar & Search", "yy", "Copy current page URL to clipboard (pbcopy)"},
+    {"Vomnibar & Search", "ge / gE", "Edit form input in $EDITOR / Edit current URL"},
+    {"Vomnibar & Search", "yy / yp", "Copy current page URL / Title to clipboard (pbcopy)"},
+    {"Vomnibar & Search", "ya / yA", "Copy all page URLs / Markdown link list to clipboard"},
+    {"Vomnibar & Search", "yc", "Copy code block under cursor (strips line numbers)"},
     {"Vomnibar & Search", "gu / gU", "Go up one directory / Go to root domain"},
+    {"Vomnibar & Search", "gi", "Focus first / next form input ([count]gi for N-th)"},
+    {"Vomnibar & Search", "gO / go", "Floating popup Table of Contents (outline)"},
 
     /* Tab Management */
     {"Tab Management", "T", "Tab Vomnibar (Interactive Tab switcher & fuzzy filter)"},
     {"Tab Management", "J / K", "Switch to right / left tab (also gt/gT, {/}, ]t/[t)"},
+    {"Tab Management", "<< / >>", "Move current tab left / right (also g</g>, [T/]T)"},
     {"Tab Management", "x / X", "Close current tab / Restore closed tab"},
     {"Tab Management", "gxa", "Close all other tabs (keep current)"},
     {"Tab Management", "gx$", "Close all tabs to the right"},
     {"Tab Management", "gx0", "Close all tabs to the left"},
+    {"Tab Management", "g0 / g$", "Jump to first / last tab"},
+    {"Tab Management", "yt", "Duplicate current tab in a new tab"},
 
     /* Caret & Visual Mode */
     {"Caret & Visual Mode", "c / C", "Toggle Caret navigation mode (h/j/k/l, w/b, y: yank)"},
@@ -2346,14 +2356,14 @@ static VimiumHelpItem vimium_help_items[] = {
 DEFUN(ldhelp, HELP, "Show Vimium Help HUD & Cheat Sheet")
 {
     int total = 0, filtered_total = 0;
-    VimiumHelpItem *filtered[64];
+    VimiumHelpItem *filtered[128];
     int top_idx = 0;
     char filter[64] = "";
     int flen = 0;
     int i, c;
     char buf[256];
 
-    for (total = 0; vimium_help_items[total].key != NULL && total < 64; total++);
+    for (total = 0; vimium_help_items[total].key != NULL && total < 128; total++);
 
     for (;;) {
 	filtered_total = 0;
@@ -4821,7 +4831,7 @@ DEFUN(decURLNumber, DEC_URL, "Decrement number in current URL (Vimium [a / g-)")
 static void goto_heading(int direction);
 static void goto_code_block(int direction);
 
-DEFUN(vimiumRBracket, VIMIUM_RBRACKET, "Vimium-like ] prefix: ]] next page, ]a inc URL, ]t next tab, ]h next heading, ]c next code")
+DEFUN(vimiumRBracket, VIMIUM_RBRACKET, "Vimium-like ] prefix: ]] next page, ]a inc URL, ]t next tab, ]T move tab right, ]h next heading, ]c next code")
 {
     int c = getch();
     if (c == ESC_CODE || c == CTRL_G || c == CTRL_C)
@@ -4838,6 +4848,10 @@ DEFUN(vimiumRBracket, VIMIUM_RBRACKET, "Vimium-like ] prefix: ]] next page, ]a i
 	nextT();
 	return;
     }
+    if (c == 'T' || c == '>') {
+	move_current_tab_right();
+	return;
+    }
     if (c == 'h') {
 	goto_heading(1);
 	return;
@@ -4850,7 +4864,7 @@ DEFUN(vimiumRBracket, VIMIUM_RBRACKET, "Vimium-like ] prefix: ]] next page, ]a i
 	pushEvent((int)GlobalKeymap[c], NULL);
 }
 
-DEFUN(vimiumLBracket, VIMIUM_LBRACKET, "Vimium-like [ prefix: [[ prev page, [a dec URL, [t prev tab, [h prev heading, [c prev code")
+DEFUN(vimiumLBracket, VIMIUM_LBRACKET, "Vimium-like [ prefix: [[ prev page, [a dec URL, [t prev tab, [T move tab left, [h prev heading, [c prev code")
 {
     int c = getch();
     if (c == ESC_CODE || c == CTRL_G || c == CTRL_C)
@@ -4867,6 +4881,10 @@ DEFUN(vimiumLBracket, VIMIUM_LBRACKET, "Vimium-like [ prefix: [[ prev page, [a d
 	prevT();
 	return;
     }
+    if (c == 'T' || c == '<') {
+	move_current_tab_left();
+	return;
+    }
     if (c == 'h') {
 	goto_heading(-1);
 	return;
@@ -4877,6 +4895,40 @@ DEFUN(vimiumLBracket, VIMIUM_LBRACKET, "Vimium-like [ prefix: [[ prev page, [a d
     }
     if (IS_ASCII(c))
 	pushEvent((int)GlobalKeymap[c], NULL);
+}
+
+DEFUN(vimiumShiftLeft, VIMIUM_SHIFT_L, "Vimium-like <<: Move current tab left (or single <: shift viewport left)")
+{
+    if (check_input_timeout_ms(250)) {
+	int c = getch();
+	if (c == '<' || c == ',') {
+	    move_current_tab_left();
+	    return;
+	}
+	if (c == ESC_CODE || c == CTRL_G || c == CTRL_C)
+	    return;
+	if (IS_ASCII(c))
+	    pushEvent((int)GlobalKeymap[c], NULL);
+	return;
+    }
+    shiftl();
+}
+
+DEFUN(vimiumShiftRight, VIMIUM_SHIFT_R, "Vimium-like >>: Move current tab right (or single >: shift viewport right)")
+{
+    if (check_input_timeout_ms(250)) {
+	int c = getch();
+	if (c == '>' || c == '.') {
+	    move_current_tab_right();
+	    return;
+	}
+	if (c == ESC_CODE || c == CTRL_G || c == CTRL_C)
+	    return;
+	if (IS_ASCII(c))
+	    pushEvent((int)GlobalKeymap[c], NULL);
+	return;
+    }
+    shiftr();
 }
 
 static void
@@ -5006,34 +5058,80 @@ go_url_up(int root)
 static void
 focus_first_input(void)
 {
-    HmarkerList *hl;
-    int i, n_forms = 0;
-    int form_marks[128];
-    static int last_form_idx = -1;
+    AnchorList *al;
+    int i, n_inputs = 0;
+    int input_indices[128];
+    int target_idx = 0;
+    static int last_input_idx = -1;
+    Anchor *current_anchor = NULL;
 
-    if (Currentbuf == NULL || Currentbuf->firstLine == NULL)
-	return;
-    hl = Currentbuf->hmarklist;
-    if (!hl || hl->nmark <= 0)
-	return;
-
-    for (i = 0; i < hl->nmark && n_forms < 128; i++) {
-	BufferPoint *po = hl->marks + i;
-	Anchor *a = retrieveAnchor(Currentbuf->formitem, po->line, po->pos);
-	if (a != NULL)
-	    form_marks[n_forms++] = i;
-    }
-
-    if (n_forms == 0) {
-	topA();
+    if (Currentbuf == NULL || Currentbuf->formitem == NULL || Currentbuf->formitem->nanchor <= 0) {
+	disp_message("No form inputs found on this page", TRUE);
 	return;
     }
 
-    last_form_idx = (last_form_idx + 1) % n_forms;
-    BufferPoint *target_pt = hl->marks + form_marks[last_form_idx];
+    al = Currentbuf->formitem;
+    current_anchor = retrieveCurrentForm(Currentbuf);
 
-    gotoLine(Currentbuf, target_pt->line);
-    Currentbuf->pos = target_pt->pos;
+    /* 1. Prioritize editable text inputs (TEXT, PASSWORD, FILE, TEXTAREA) */
+    for (i = 0; i < al->nanchor && n_inputs < 128; i++) {
+	Anchor *a = &al->anchors[i];
+	FormItemList *fi = (FormItemList *)a->url;
+	if (fi != NULL) {
+	    if (fi->type == FORM_INPUT_TEXT ||
+		fi->type == FORM_INPUT_PASSWORD ||
+		fi->type == FORM_INPUT_FILE ||
+		fi->type == FORM_TEXTAREA) {
+		input_indices[n_inputs++] = i;
+	    }
+	}
+    }
+
+    /* 2. Fall back to other non-hidden form items if no text inputs */
+    if (n_inputs == 0) {
+	for (i = 0; i < al->nanchor && n_inputs < 128; i++) {
+	    Anchor *a = &al->anchors[i];
+	    FormItemList *fi = (FormItemList *)a->url;
+	    if (fi != NULL && fi->type != FORM_INPUT_HIDDEN) {
+		input_indices[n_inputs++] = i;
+	    }
+	}
+    }
+
+    if (n_inputs == 0) {
+	disp_message("No interactive form fields found on this page", TRUE);
+	return;
+    }
+
+    /* 3. Determine target index */
+    if (prec_num > 0) {
+	target_idx = prec_num - 1;
+	if (target_idx >= n_inputs)
+	    target_idx = n_inputs - 1;
+	if (target_idx < 0)
+	    target_idx = 0;
+	prec_num = 0;
+    } else {
+	int cur_pos = -1;
+	if (current_anchor) {
+	    for (i = 0; i < n_inputs; i++) {
+		if (&al->anchors[input_indices[i]] == current_anchor) {
+		    cur_pos = i;
+		    break;
+		}
+	    }
+	}
+	if (cur_pos >= 0) {
+	    target_idx = (cur_pos + 1) % n_inputs;
+	} else {
+	    target_idx = (last_input_idx + 1) % n_inputs;
+	}
+    }
+    last_input_idx = target_idx;
+
+    Anchor *target_a = &al->anchors[input_indices[target_idx]];
+    gotoLine(Currentbuf, target_a->start.line);
+    Currentbuf->pos = target_a->start.pos;
     arrangeCursor(Currentbuf);
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
     _followForm(FALSE);
@@ -5187,6 +5285,46 @@ smart_url_or_search(const char *input)
 	    }
 	    if (strcasecmp(prefix, "brew") == 0) {
 		s = Strnew_charp("https://formulae.brew.sh/formula/");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "hn") == 0 || strcasecmp(prefix, "hackernews") == 0) {
+		s = Strnew_charp("https://hn.algolia.com/?q=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "gl") == 0 || strcasecmp(prefix, "gitlab") == 0) {
+		s = Strnew_charp("https://gitlab.com/search?search=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "py") == 0 || strcasecmp(prefix, "pypi") == 0) {
+		s = Strnew_charp("https://pypi.org/search/?q=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "mdn") == 0) {
+		s = Strnew_charp("https://developer.mozilla.org/en-US/search?q=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "go") == 0 || strcasecmp(prefix, "golang") == 0) {
+		s = Strnew_charp("https://pkg.go.dev/search?q=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "hf") == 0 || strcasecmp(prefix, "huggingface") == 0) {
+		s = Strnew_charp("https://huggingface.co/models?search=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "arxiv") == 0) {
+		s = Strnew_charp("https://arxiv.org/search/?query=");
+		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
+		return s->ptr;
+	    }
+	    if (strcasecmp(prefix, "bing") == 0) {
+		s = Strnew_charp("https://www.bing.com/search?q=");
 		Strcat_charp(s, Str_form_quote(Strnew_charp(query))->ptr);
 		return s->ptr;
 	    }
@@ -7032,7 +7170,55 @@ edit_current_form_external(void)
     unlink(tmpf);
 }
 
-DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/gz/gr")
+static void
+yank_link_under_cursor(int as_markdown)
+{
+    Anchor *a = NULL;
+    char *url = NULL;
+    char *title = NULL;
+    ParsedURL u;
+    Str s;
+
+    if (Currentbuf == NULL)
+	return;
+
+    a = retrieveCurrentAnchor(Currentbuf);
+    if (a == NULL)
+	a = retrieveCurrentImg(Currentbuf);
+
+    if (a != NULL && a->url != NULL && *a->url != '\0') {
+	parseURL2(a->url, &u, baseURL(Currentbuf));
+	s = parsedURL2Str(&u);
+	url = s->ptr;
+	title = (a->title && *a->title) ? a->title : get_anchor_text(Currentbuf, a);
+	if (title == NULL || *title == '\0')
+	    title = url;
+    } else {
+	s = parsedURL2Str(&Currentbuf->currentURL);
+	url = s->ptr;
+	title = (Currentbuf->buffername && *Currentbuf->buffername) ? Currentbuf->buffername : url;
+    }
+
+    if (url == NULL || *url == '\0' || strcmp(url, "about:blank") == 0) {
+	disp_message("No URL to copy", TRUE);
+	return;
+    }
+
+    if (as_markdown) {
+	Str md = Sprintf("[%s](%s)", title, url);
+	if (clipboard_write(md->ptr))
+	    disp_message(Sprintf("Copied Markdown link: [%s](%s)", title, url)->ptr, TRUE);
+	else
+	    disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
+    } else {
+	if (clipboard_write(url))
+	    disp_message(Sprintf("Copied URL to clipboard: %s", url)->ptr, TRUE);
+	else
+	    disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
+    }
+}
+
+DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/gy/gY/g</g>/g0/g$/gz/gr")
 {
     int c;
 
@@ -7057,6 +7243,14 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
     }
     if (c == '>' || c == '.') {
 	move_current_tab_right();
+	return;
+    }
+    if (c == 'y') {
+	yank_link_under_cursor(0);
+	return;
+    }
+    if (c == 'Y') {
+	yank_link_under_cursor(1);
 	return;
     }
     if (c == '0' || c == '^') {

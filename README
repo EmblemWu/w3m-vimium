@@ -21,32 +21,51 @@ workflow and keyboard-driven efficiency.
 Added features
 --------------
 
-- Link hint mode:
+- Link hint mode & URL copying:
   - `f` hint visible links and follow in current buffer
   - `F` hint visible links and open in a new tab
+  - `yf` hint visible links and copy the selected link URL to clipboard
+  - `yF` / `ym` hint visible links and copy Markdown link (`[Title](URL)`) to clipboard
+  - `yi` hint visible images and copy the selected image URL to clipboard
+  - `yd` / `df` hint visible links and download target in background
+  - `gy` copy link URL under cursor to clipboard (or current page URL if not on link)
+  - `gY` copy Markdown link (`[Title](URL)`) under cursor to clipboard
 - Yank / copy (`y` prefix):
   - `yy` copy current page URL to clipboard
+  - `yp` / `yT` copy current page title to clipboard
   - `ya` copy all hyperlink URLs on current page to clipboard (line-separated list)
   - `yA` / `yM` copy all hyperlink URLs on current page as a Markdown link list (`- [Title](URL)`)
-  - `yf` hint visible links and copy the selected link URL to clipboard
-  - `yi` hint visible images and copy the selected image URL to clipboard
-  - `yc` / `yC` yank current or nearest code block directly to clipboard
+  - `yc` / `yC` yank current or nearest code block directly to clipboard (auto-strips line numbers)
   - `yt` duplicate current tab in a new tab
-  - `yp` / `yT` copy current page title to clipboard
-  - `ym` copy current page as Markdown link (`[Title](URL)`)
+- Navigation & Pagination:
+  - `]]` / `[[` automatically find and follow Next / Previous pagination links
+  - `]a` / `[a` (also `g+` / `g-`) increment / decrement numbers in the current URL
+  - `]h` / `[h` (also `gj` / `gk`) jump to next / previous heading on page
+  - `]c` / `[c` (also `gc` / `gC`) jump to next / previous code block
+  - `*` / `#` search word under cursor backward / forward
+  - `gO` / `go` open interactive hierarchical Table of Contents (outline popup)
 - Paste and navigate:
   - `p` open URL from clipboard in current buffer
   - `P` open URL from clipboard in a new tab
 - Smart Vomnibar & search:
-  - `o` open URL or search query in current buffer (auto-detects URLs vs search keywords)
-  - `O` open URL or search query in a new tab
+  - `b` / `o` open interactive Vomnibar (multi-token fuzzy search across open tabs, bookmarks, history, and search engines)
+  - `B` / `O` open Vomnibar in a new tab
+  - `t` open URL or search query in a new tab
+  - `ga` / `gb` instant bookmark current page / view bookmarks
+  - Smart search engine prefixes: `g` (Google), `gh` (GitHub), `gl` (GitLab), `w` (Wikipedia), `b` (Bilibili), `z` (Zhihu), `yt` (YouTube), `d` (DuckDuckGo), `x` (Twitter/X), `bd` (Baidu), `v2` (V2EX), `so` (StackOverflow), `crates` (Rust Crates), `npm` (NPM), `brew` (Homebrew), `hn` (Hacker News), `py` (PyPI), `mdn` (MDN Web Docs), `go` (Go Packages), `hf` (Hugging Face), `arxiv` (ArXiv), `bing` (Bing)
 - Tab management:
   - `x` close current tab (records closed tab to undo stack)
   - `X` restore the most recently closed tab
-  - `J` / `K` switch to next / previous tab
+  - `J` / `K` (also `gt` / `gT`, `{` / `}`, `]t` / `[t`) switch to next / previous tab
+  - `<<` / `>>` (also `g<` / `g>`, `[T` / `]T`) move current tab left / right
+  - `gxa` close all other tabs (keep current)
+  - `gx$` close all tabs to the right
+  - `gx0` close all tabs to the left
+  - `g0` / `g$` jump to first / last tab
   - `yt` duplicate current tab in a new tab
 - Form & Mark navigation:
-  - `gi` cycle through form input fields across the page
+  - `gi` focus first/next editable text input (supports count prefix `[count]gi` to jump to N-th input)
+  - `ge` open Neovim/external editor for form textarea/input under cursor
   - `m<a-z>` set local position mark
   - `'<a-z>` jump to local position mark
 - Vimium-like navigation remaps (default keymap):

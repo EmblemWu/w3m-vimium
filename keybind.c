@@ -21,7 +21,7 @@ unsigned char GlobalKeymap[128] = {
     /*  0       1       2       3       4       5       6       7        */
     nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd, nulcmd,
     /*  8       9       :       ;       <       =       >       ?        */
-    nulcmd, nulcmd, chkURL, chkWORD, shiftl, pginfo, shiftr, ldhelp,
+    nulcmd, nulcmd, chkURL, chkWORD, vimiumShiftLeft, pginfo, vimiumShiftRight, ldhelp,
     /*  @       A       B       C       D       E       F       G        */
     readsh, nulcmd, tabVomnibarModal, caretMode, ldDL, editBf, hintTabL, goLineL,
     /*  H       I       J       K       L       M       N       O        */
