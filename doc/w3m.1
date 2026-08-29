@@ -1,8 +1,8 @@
 .nr N -1
 .nr D 5
-.TH W3M 1 "2016-08-06" "w3m 0.5.3"
+.TH W3M 1 "2026-08-29" "w3m-vimium 0.5.3"
 .SH NAME
-w3m \- a text based web browser and pager
+w3m \- a high-performance text-based web browser, pager, and Vimium-enhanced terminal navigator
 .SH SYNOPSIS
 w3m [OPTION]... [ \fIfile\fP | \fIURL\fP ]...
 .SH DESCRIPTION
@@ -15,39 +15,177 @@ w3m [OPTION]... [ \fIfile\fP | \fIURL\fP ]...
 .if \nN==0 .nr N 10
 .if \nD==0 .nr D 5
 
-\fIw3m\fP is a text based browser which can display local or remote
-web pages as well as other documents.
-It is able to process HTML
-tables and frames but it ignores JavaScript and Cascading Style
-Sheets.
-\fIw3m\fP can also serve as a pager for text files named as
-arguments or passed on standard input, and as a general purpose
-directory browser.
+\fIw3m\fP is an advanced text-based web browser and pager designed for
+terminal power users. It renders HTML documents, tables, frames, forms,
+and inline graphics (via \fIw3m-img\fP or sixel/kitty protocols).
 
-\fIw3m\fP organizes its content in buffers or tabs, allowing easy
-navigation between them.
-With the w3m-img extension installed, \fIw3m\fP can
-display inline graphics in web pages.
-And whenever \fIw3m\fP's HTML
-rendering capabilities do not meet your needs, the target URL can be
-handed over to a graphical browser with a single command.
-
-For help with runtime options, press \(lqH\(rq while running \fIw3m\fP.
+This enhanced \fBw3m-vimium\fP edition integrates complete Vimium keyboard
+ergonomics, an interactive fuzzy Vomnibar, dynamic Tab switcher, visual
+link hints, instant bookmarking, external Neovim form editing, and
+smart pagination navigation.
 
 .SH ARGUMENTS
 
 When given one or more command line arguments, \fIw3m\fP will handle
-targets according to content type.
-For web, \fIw3m\fP gets this
-information from HTTP headers; for relative or absolute file system
-paths, it relies on filenames.
+targets according to content type. For web URLs, \fIw3m\fP queries remote
+servers via HTTP/HTTPS; for local files, it determines MIME type by extension
+or content sniffing.
 
-With no argument, \fIw3m\fP expects data from standard input and
-assumes \(lqtext/plain\(rq unless another MIME type is given by the user.
+With no argument, \fIw3m\fP reads from standard input (assumed \f(CWtext/plain\fP).
 
-If provided with no target and no fallback target (see for instance
-option \fB\-v\fP below), \fIw3m\fP will exit with usage information.
-.SH OPTIONS
+.SH KEYBINDINGS & VIMIUM EXTENSIONS
+\fIw3m-vimium\fP provides standard modal keyboard navigation aligned with
+modern browser extensions (Vimium / Qutebrowser) and Vim.
+
+.SS Page Scrolling & Navigation
+.TP
+\fBj\fP, \fBk\fP
+Scroll down / up by one line
+.TP
+\fBh\fP, \fBl\fP
+Scroll left / right by one column
+.TP
+\fBd\fP, \fBu\fP
+Scroll down / up by half a page
+.TP
+\fBCtrl-f\fP, \fBCtrl-b\fP
+Scroll down / up by a full page
+.TP
+\fBgg\fP, \fBG\fP
+Jump to top / bottom of document
+.TP
+\fB0\fP, \fB$\fP
+Jump to leftmost / rightmost edge
+.TP
+\fBH\fP, \fBL\fP
+Go back / forward in browsing history
+.TP
+\fBr\fP, \fBR\fP
+Reload current page / reload bypassing cache
+
+.SS Link Hints & Clipboard Yanking
+.TP
+\fBf\fP
+Activate link hints: display two-letter letter labels over all visible links; type the letters to follow the link in current tab
+.TP
+\fBF\fP
+Activate link hints and open target in a new background tab
+.TP
+\fByf\fP
+Activate link hints and copy target link URL to the system clipboard
+.TP
+\fByF\fP
+Activate link hints and copy target link as Markdown \f(CW[Title](URL)\fP to system clipboard
+.TP
+\fByy\fP
+Copy current page URL to system clipboard
+.TP
+\fBym\fP
+Copy current page as Markdown \f(CW[Title](URL)\fP to system clipboard
+.TP
+\fBgy\fP
+Copy URL of the link under cursor directly to clipboard
+.TP
+\fBgY\fP
+Copy URL and title of link under cursor to clipboard
+.TP
+\fByc\fP
+Smart-yank code block under cursor (automatically strips line numbers and prompts)
+
+.SS Interactive Vomnibar & Bookmarks
+.TP
+\fBb\fP, \fBo\fP
+Open interactive floating \fBVomnibar\fP in current tab. Real-time multi-token fuzzy search across browsing history, bookmarks, open tabs, and search engines. Navigate with \fBj\fP/\fBk\fP, switch mode with \fBTab\fP, jump with \fBEnter\fP, dismiss with \fBEsc\fP
+.TP
+\fBB\fP, \fBO\fP
+Open interactive \fBVomnibar\fP and launch target in a new tab
+.TP
+\fBga\fP
+Instant zero-overhead bookmark: immediately saves current page to \f(CW~/.w3m/bookmark.html\fP without opening external CGI forms
+.TP
+\fBgb\fP
+Open bookmark manager
+.TP
+\fISearch Engine Prefixes in Vomnibar\fR
+Type \fBgh:\fP to search GitHub, \fBwk:\fP for Wikipedia, \fBddg:\fP for DuckDuckGo, \fBbi:\fP for Bing, \fBbd:\fP for Baidu
+
+.SS Tab & Buffer Management
+.TP
+\fBt\fP
+Open new tab with smart URL / query input prompt
+.TP
+\fBT\fP
+Open interactive \fBTab Switcher Vomnibar\fP. Lists all open tabs with index numbers, titles, and URLs. Press \fB1-9\fP to jump instantly, \fB/\fP to filter, \fBd\fP or \fBx\fP to close selected tab
+.TP
+\fBJ\fP, \fBK\fP, \fBgt\fP, \fBgT\fP
+Switch to next / previous tab
+.TP
+\fB<<\fP, \fB>>\fP
+Move current tab one position to the left / right
+.TP
+\fBx\fP
+Close current tab
+.TP
+\fBX\fP
+Restore last closed tab (undo close)
+.TP
+\fBgxa\fP
+Close all other tabs except current
+.TP
+\fBgx0\fP, \fBgx$\fP
+Close all tabs to the left / right of current tab
+
+.SS Form Input & External Editor
+.TP
+\fBgi\fP
+Focus first interactive text input field on the page
+.TP
+\fB[\fInum\fB]gi\fP
+Focus \fInum\fR-th text input field directly
+.TP
+\fBge\fP
+Open current form text area or input field in external \fB$EDITOR\fP (e.g. Neovim), sync text back on save-and-quit
+.TP
+\fBgE\fP
+Edit current page URL in place and open in a new tab
+
+.SS Search & Jumplist
+.TP
+\fB/\fP, \fB?\fP
+Search forward / backward in page
+.TP
+\fBn\fP, \fBN\fP
+Repeat last search forward / backward
+.TP
+\fB*\fP, \fB#\fP
+Search forward / backward for the word currently under cursor
+.TP
+\fBCtrl-o\fP
+Jump backward in document location jump list
+
+.SS Smart Pagination & URL Stepping
+.TP
+\fB]]\fP
+Follow 'next' pagination link (auto-detects Next, >, 下一页, etc.)
+.TP
+\fB[[\fP
+Follow 'previous' pagination link (auto-detects Prev, <, 上一页, etc.)
+.TP
+\fB]a\fP
+Increment trailing integer in current URL by 1 (e.g. page/1 -> page/2)
+.TP
+\fB[a\fP
+Decrement trailing integer in current URL by 1
+
+.SS Menus & Quick Outlines
+.TP
+\fBgo\fP, \fBgO\fP
+Open interactive hierarchical Table of Contents popup menu
+.TP
+\fBgl\fP, \fBgL\fP
+Open interactive Links popup menu list
+
+.SH COMMAND LINE OPTIONS
 Command line options are introduced with a single \(lq\-\(rq character and
 may take an argument.
 .SS General options
@@ -68,25 +206,10 @@ deactivate mouse support
 display each line's number
 .TP
 \fB\-N\fP
-distribute multiple command line arguments to tabs.
-By default, a
-stack of buffers is used
-.TP
-\fB\-ppc \fInum\fR
-width of \fInum\fR pixels per character.
-Range of 4.0 to 32.0, default 8.0.
-Larger values will make tables narrower.
-(Implementation not verified)
-.TP
-\fB\-ppl \fInum\fR
-height of \fInum\fR pixels per line.
-Range of 4.0 to 64.0.
-(Implementation not verified)
+distribute multiple command line arguments to tabs
 .TP
 \fB\-title\fP, \fB\-title=TERM\fP
-use the buffer name as terminal title string.
-With specified TERM,
-this sets the title configuration style accordingly
+use the buffer name as terminal title string
 .TP
 \fB\-v\fP
 with no other target defined, welcome users with a built-in page
@@ -98,8 +221,8 @@ toggle wrapping mode in searches
 do not initialize/deinitialize the terminal
 .TP
 \fB+\fInum\fR
-go to line \fInum\fR;
-only effective for \fInum\fR larger than the number of lines in the terminal
+go to line \fInum\fR
+
 .SS Browser options
 .TP
 \fB\-cols \fInum\fR
@@ -115,218 +238,58 @@ render frames
 use or do not use graphic characters for drawing HTML table and frame borders
 .TP
 \fB\-header \fIstring\fR
-append \fIstring\fR to the HTTP(S) request.
-Expected to match the header syntax \f(CWVariable: Value\fP
-.TP
-\fB\-m\fP
-Render the body of Usenet messages according to the header \(lqContent-type\(rq
+append \fIstring\fR to the HTTP(S) request (syntax: \f(CWVariable: Value\fP)
 .TP
 \fB\-no-proxy\fP
 do not use proxy
 .TP
 \fB\-post \fIfile\fR
-use POST method to upload data defined in \fIfile\fR.
-The syntax to be used
-is \f(CWvar1=value1[&var2=value2]...\fP
+use POST method to upload data defined in \fIfile\fR
 .TP
-\fB\-4\fP
-IPv4 only.
-Corresponds to dns_order=4 in configuration files
-.TP
-\fB\-6\fP
-IPv6 only.
-Corresponds to dns_order=6 in configuration files
-.TP
-\fB\-insecure\fP
-use insecure SSL config options,
-alias for \f(CW-o ssl_cipher=ALL:eNULL:@SECLEVEL=0 -o ssl_min_version=all
--o ssl_forbid_method= -o ssl_verify_server=0\fP
-.SS Text pager options
-.TP
-\fB\-l \fInum\fR
-number of lines preserved internally when receiving plain text from
-stdin (default 10,000)
-.TP
-\fB\-r\fP
-use caret notation to display special escape characters (such
-as ANSI escapes or nroff-style backspaces for bold and underlined
-characters) instead of processing them
-.TP
-\fB\-s\fP
-squeeze multiple blank lines into one
-.TP
-\fB\-t\fP \fInum\fP
-set tab width to \fInum\fR columns.
-No effect on stdout
-.SS Data type/encoding options
-.TP
-\fB\-I \fIcharset\fR
-user defined character encoding of input data
-.TP
-\fB\-O \fIcharset\fR
-user defined character encoding of output data
-.TP
-\fB\-T \fItype\fR
-explicit characterization of input data by MIME type
-.SS Options for data output, followed by immediate exit
+\fB\-4\fP, \fB\-6\fP
+IPv4 only / IPv6 only
+
+.SS Text pager & Output options
 .TP
 \fB\-dump\fP
-dump rendered page into stdout.
-Set implicitly when output is directed
-to a file or pipe
+dump rendered page into stdout
 .TP
 \fB\-dump_source\fP
-dump the page's source code into stdout
+dump the page's HTML source code into stdout
 .TP
 \fB\-dump_head\fP
-dump response of a HEAD request for a URL into stdout
-.TP
-\fB\-dump_both\fP
-dump HEAD, and source code for a URL into stdout
-.TP
-\fB\-dump_extra\fP
-dump HEAD, source code, and extra information for a URL into stdout
+dump response headers of a HEAD request for a URL into stdout
 .TP
 \fB\-help\fP
-show a summary of compiled-in features and command line options
-.TP
-\fB\-show-option\fP
-show all available configuration options
+show a summary of compiled-in features and options
 .TP
 \fB\-version\fP
-show the version of \fIw3m\fP
-.SS Options for overriding default settings and resources
-.TP
-\fB\-bookmark \fIfile\fR
-use \fIfile\fR instead of the default bookmark.html file
-.TP
-\fB\-config \fIfile\fR
-use \fIfile\fR instead of the default configuration file
-.TP
-\fB\-o \fIoption=value\fR
-modify one configuration item with an explicitly given value;
-without \fIoption=value\fR, equivalent to \fB\-show-option\fR
-.TP
-\fB\-debug\fP
-use debug mode (only for debugging)
-.TP
-\fB\-reqlog\fP
-log headers of HTTP communication in file \f(CW~/.w3m/request.log\fP
-.SH EXAMPLES
-.SS Pager-like usage
-.TP
-Combine snippets of HTML code and preview the page
-.EX
-$ cat header.html footer.html | w3m \-T text/html
-.EE
-.TP
-Compare two files using tabs
-.EX
-$ w3m \-N config.old config
-.EE
-.SS Browser-like usage
-.TP
-Display web content in monochrome terminal
-.EX
-$ w3m \-M http://w3m.sourceforge.net
-.EE
-.TP
-Display embedded graphics
-.EX
-$ w3m \-o auto_image=TRUE http://w3m.sourceforge.net
-.EE
-.TP
-Display content from Usenet
-.EX
-$ w3m \-m nntp://news.aioe.org/comp.os.linux.networking
-.EE
-.TP
-Upload data for a URL using the POST method
-.EX
-$ w3m \-post \- http://example.com/form.php <<<'a=0&b=1'
-.EE
-.SS Filter-like usage
-.TP
-Convert an HTML file to plain text with a defined line length
-.EX
-$ w3m \-cols 40 foo.html > foo.txt
-.EE
-.TP
-Output the bookmarks page as text with an appended list of links
-.EX
-$ w3m \-B \-o display_link_number=1 > out.txt
-.EE
-.TP
-Conversion of file format and character encoding
-.EX
-$ w3m \-T text/html \-I EUC-JP \-O UTF-8 < foo.html > foo.txt
-.EE
-.SS Start with no input
-.TP
-Welcome users with a built-in page
-.EX
-$ w3m \-v
-.EE
-.\".SH Errors
-.SH ENVIRONMENT
-\fIw3m\fP recognises the environment variable \fBWWW_HOME\fP as
-defining a fallback target for use if it is invoked without one.
+show version of \fIw3m\fP
 
-If the \fBW3M_DIR\fP environment variable is set to a directory
-name, \fIw3m\fP will store its user files there instead of
-under the ~/.w3m directory.
+.SH ENVIRONMENT
+.TP
+\fBWWW_HOME\fP
+Fallback home URL or file path
+.TP
+\fBW3M_DIR\fP
+User configuration and state directory (defaults to \f(CW~/.w3m\fP)
+.TP
+\fBEDITOR\fP, \fBVISUAL\fP
+Default editor launched for form inputs via \fBge\fP
+
 .SH FILES
-The default locations of some files are listed below. These
-locations can be altered via the \fBW3M_DIR\fP environment
-variable.
 .TP
 \f(CW~/.w3m/bookmark.html\fP
-default bookmark file
+Default bookmark file (supported by instant \fBga\fP)
 .TP
 \f(CW~/.w3m/config\fP
-user defined configuration file; overrides \f(CW/etc/w3m/config\fP
-.TP
-\f(CW~/.w3m/cookie\fP
-cookie jar; written on exit, read on launch
+User configuration file
 .TP
 \f(CW~/.w3m/history\fP
-browser history - visited files and URLs
+Browser navigation history (queried by \fBVomnibar\fP \fBb\fP/\fBo\fP)
 .TP
 \f(CW~/.w3m/keymap\fP
-user defined key bindings; overrides default key bindings
-.TP
-\f(CW~/.w3m/mailcap\fP
-external viewer configuration file
-.TP
-\f(CW~/.w3m/menu\fP
-user defined menu; overrides default menu
-.TP
-\f(CW~/.w3m/mime.types\fP
-MIME types file
-.TP
-\f(CW~/.w3m/mouse\fP
-user defined mouse settings
-.TP
-\f(CW~/.w3m/passwd\fP
-password and username file
-.TP
-\f(CW~/.w3m/pre_form\fP
-contains predefined values to fill recurrent HTML forms
-.\" .TP
-.\" .I $~/.w3m/urimethodmap
-.\" ???
-.SH SEE ALSO
-README and example files are to be found in the doc directory of your
-\fIw3m\fP installation.
-Recent information about \fIw3m\fP may be found on
-.UR http://w3m.sourceforge.net
-the project's web pages at
-.UE
-.SH ACKNOWLEDGMENTS
-\fIw3m\fP has incorporated code from several sources.
-Users have contributed patches and suggestions over time.
-.SH AUTHOR
-.MT aito@fw.ipsj.or.jp
-Akinori ITO
-.ME
+Custom keybindings file
 
+.SH AUTHOR
+Originally created by Akinori ITO. Enhanced with Vimium ergonomics, Vomnibar, and high-performance terminal navigation by the Claw & Wu Wenjie workspace project.
