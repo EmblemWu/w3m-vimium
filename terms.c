@@ -2474,6 +2474,26 @@ skip_escseq(void)
 }
 
 int
+check_input_timeout_ms(int ms)
+{
+    fd_set rfd;
+    struct timeval tim;
+    int ret;
+
+    if (tty < 0)
+	return 0;
+
+    tim.tv_sec = ms / 1000;
+    tim.tv_usec = (ms % 1000) * 1000;
+
+    FD_ZERO(&rfd);
+    FD_SET(tty, &rfd);
+
+    ret = select(tty + 1, &rfd, 0, 0, &tim);
+    return (ret > 0);
+}
+
+int
 sleep_till_anykey(int sec, int purge)
 {
     fd_set rfd;

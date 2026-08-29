@@ -2289,15 +2289,24 @@ static VimiumHelpItem vimium_help_items[] = {
     {"Navigation & Scrolling", "gg / G", "Scroll to top / bottom of page"},
     {"Navigation & Scrolling", "0 / $", "Scroll to beginning / end of line"},
     {"Navigation & Scrolling", "( / )", "Jump history undo / redo"},
+    {"Navigation & Scrolling", "]] / [[", "Follow Next / Previous pagination link"},
+    {"Navigation & Scrolling", "]a / [a", "Increment / Decrement number in current URL (also g+/g-)"},
+    {"Navigation & Scrolling", "]h / [h", "Jump to next / previous heading (also gj/gk)"},
+    {"Navigation & Scrolling", "]c / [c", "Jump to next / previous code block (also gc/gC)"},
 
     /* Link Hints */
     {"Link Hints", "f", "Open link in current tab (badge hints)"},
     {"Link Hints", "F", "Open link in new tab (badge hints)"},
-    {"Link Hints", "[ / ]", "Jump to first / last link on page"},
+    {"Link Hints", "yf", "Hint link and copy URL to clipboard"},
+    {"Link Hints", "yF / ym", "Hint link and copy Markdown [Title](URL) to clipboard"},
+    {"Link Hints", "yi", "Hint image and copy Image URL to clipboard"},
+    {"Link Hints", "yd / df", "Hint link and download target in background"},
     {"Link Hints", "Tab / S-Tab", "Focus next / previous link"},
 
     /* Vomnibar, Search & URLs */
-    {"Vomnibar & Search", "o / O", "Open URL / Smart Search (bd, v2, so, crates, npm, brew)"},
+    {"Vomnibar & Search", "b / o", "Open Vomnibar (Tabs / Bookmarks / History / Search)"},
+    {"Vomnibar & Search", "B / O", "Open Vomnibar in a new tab"},
+    {"Vomnibar & Search", "ga / gb", "Instant bookmark current page / View bookmarks"},
     {"Vomnibar & Search", "t", "Open URL / Smart Search in new tab"},
     {"Vomnibar & Search", "p / P", "Open clipboard content in current / new tab"},
     {"Vomnibar & Search", "ge / gE", "Edit current URL in current / new tab"},
@@ -2306,7 +2315,7 @@ static VimiumHelpItem vimium_help_items[] = {
 
     /* Tab Management */
     {"Tab Management", "T", "Tab Vomnibar (Interactive Tab switcher & fuzzy filter)"},
-    {"Tab Management", "J / K", "Switch to right / left tab (also gt/gT, {/})"},
+    {"Tab Management", "J / K", "Switch to right / left tab (also gt/gT, {/}, ]t/[t)"},
     {"Tab Management", "x / X", "Close current tab / Restore closed tab"},
     {"Tab Management", "gxa", "Close all other tabs (keep current)"},
     {"Tab Management", "gx$", "Close all tabs to the right"},
@@ -4051,6 +4060,7 @@ typedef enum {
     HINT_ACT_YANK = 2,
     HINT_ACT_YANK_IMG = 3,
     HINT_ACT_DOWNLOAD = 4,
+    HINT_ACT_YANK_MD = 5,
 } HintAction;
 
 static void download_url_background(const char *url);
@@ -4481,6 +4491,38 @@ count_hint_matches(const HintItem *items, int nitem, const char *prefix,
     return nmatch;
 }
 
+static char *
+get_anchor_text(Buffer *buf, Anchor *a)
+{
+    Str text = Strnew();
+    Line *l;
+    int line_num;
+
+    if (buf == NULL || a == NULL || buf->firstLine == NULL)
+	return "";
+
+    l = buf->firstLine;
+    for (line_num = 1; l != NULL && line_num < a->start.line; l = l->next, line_num++)
+	;
+
+    while (l != NULL && line_num <= a->end.line) {
+	int sp = (line_num == a->start.line) ? a->start.pos : 0;
+	int ep = (line_num == a->end.line) ? a->end.pos : l->len;
+	if (sp < l->len && ep <= l->len && ep > sp) {
+	    char tmp[4096];
+	    int copylen = ep - sp;
+	    if (copylen > (int)sizeof(tmp) - 1)
+		copylen = sizeof(tmp) - 1;
+	    strncpy(tmp, l->lineBuf + sp, copylen);
+	    tmp[copylen] = '\0';
+	    Strcat_charp(text, tmp);
+	}
+	l = l->next;
+	line_num++;
+    }
+    return text->ptr;
+}
+
 static void
 hint_act_on_point(const BufferPoint *pt, HintAction act)
 {
@@ -4491,7 +4533,7 @@ hint_act_on_point(const BufferPoint *pt, HintAction act)
     if (pt == NULL)
 	return;
 
-    if (act == HINT_ACT_YANK || act == HINT_ACT_YANK_IMG || act == HINT_ACT_DOWNLOAD) {
+    if (act == HINT_ACT_YANK || act == HINT_ACT_YANK_IMG || act == HINT_ACT_DOWNLOAD || act == HINT_ACT_YANK_MD) {
 	/* Yank reads the anchor from the saved point, so there is no need to
 	 * reposition the cursor (which would disturb the user's view). */
 	if (act == HINT_ACT_YANK_IMG)
@@ -4510,6 +4552,15 @@ hint_act_on_point(const BufferPoint *pt, HintAction act)
 	displayBuffer(Currentbuf, B_FORCE_REDRAW);
 	if (act == HINT_ACT_DOWNLOAD) {
 	    download_url_background(s->ptr);
+	}
+	else if (act == HINT_ACT_YANK_MD) {
+	    char *t = (a->title && *a->title) ? a->title : get_anchor_text(Currentbuf, a);
+	    if (t == NULL || *t == '\0') t = s->ptr;
+	    Str md = Sprintf("[%s](%s)", t, s->ptr);
+	    if (clipboard_write(md->ptr))
+		disp_message(Sprintf("Copied Markdown link: [%s](%s)", t, s->ptr)->ptr, TRUE);
+	    else
+		disp_message("Clipboard tool not found (set W3M_CLIPBOARD_CMD)", TRUE);
 	}
 	else if (clipboard_write(s->ptr))
 	    disp_message((act == HINT_ACT_YANK_IMG) ? "Copied image URL to clipboard"
@@ -4555,6 +4606,7 @@ hint_mode(HintAction act)
 
 	tag = (act == HINT_ACT_TAB) ? " [New Tab]" :
 	      (act == HINT_ACT_YANK) ? " [Copy URL]" :
+	      (act == HINT_ACT_YANK_MD) ? " [Copy Markdown]" :
 	      (act == HINT_ACT_YANK_IMG) ? " [Copy Img URL]" :
 	      (act == HINT_ACT_DOWNLOAD) ? " [Download]" : " [Follow Link]";
 
@@ -4617,6 +4669,214 @@ DEFUN(hintL, HINT_LINK, "Hint visible links and follow (Vimium-like)")
 DEFUN(hintTabL, HINT_TAB_LINK, "Hint visible links and open in a new tab (Vimium-like)")
 {
     hint_mode(HINT_ACT_TAB);
+}
+
+DEFUN(hintYankMd, HINT_YANK_MD, "Hint visible links and copy Markdown link to clipboard")
+{
+    hint_mode(HINT_ACT_YANK_MD);
+}
+
+static void
+follow_pagination_link(int direction)
+{
+    static const char *next_patterns[] = {
+	"next", "next page", "newer", "more", "forward", "next >", "next >>",
+	">", ">>", "›", "»", "→", ">|",
+	"下一页", "下页", "后一页", "下一章", "下节", "下一篇", "下篇",
+	NULL
+    };
+    static const char *prev_patterns[] = {
+	"prev", "previous", "previous page", "older", "back", "< prev", "<< prev",
+	"<", "<<", "‹", "«", "←", "|<",
+	"上一页", "上页", "前一页", "上一章", "上节", "上一篇", "上篇",
+	NULL
+    };
+    const char **pats = (direction > 0) ? next_patterns : prev_patterns;
+    Anchor *matched = NULL;
+    int i;
+
+    if (Currentbuf == NULL || Currentbuf->href == NULL || Currentbuf->href->nanchor == 0) {
+	disp_message("No links on this page", TRUE);
+	return;
+    }
+
+    /* Iterate through anchors */
+    for (i = 0; i < Currentbuf->href->nanchor; i++) {
+	Anchor *a = &Currentbuf->href->anchors[i];
+	if (a->url == NULL || *a->url == '\0')
+	    continue;
+	char *txt = get_anchor_text(Currentbuf, a);
+	char *t_attr = (a->title && *a->title) ? a->title : "";
+
+	for (int k = 0; pats[k] != NULL; k++) {
+	    if ((txt && strcasestr(txt, pats[k]) != NULL) ||
+		(t_attr && strcasestr(t_attr, pats[k]) != NULL)) {
+		matched = a;
+		break;
+	    }
+	}
+	if (matched)
+	    break;
+    }
+
+    if (matched && matched->url) {
+	ParsedURL u;
+	parseURL2(matched->url, &u, baseURL(Currentbuf));
+	char *full_url = parsedURL2Str(&u)->ptr;
+	Buffer *cur_buf = Currentbuf;
+	pushHashHist(URLHist, full_url);
+	cmd_loadURL(full_url, baseURL(Currentbuf), NO_REFERER, NULL);
+	if (Currentbuf != cur_buf)
+	    pushHashHist(URLHist, parsedURL2Str(&Currentbuf->currentURL)->ptr);
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	disp_message(Sprintf("[Pagination] Followed %s link: %s",
+			     (direction > 0) ? "Next (]] )" : "Prev ([[ )",
+			     full_url)->ptr, TRUE);
+    } else {
+	disp_message((direction > 0) ? "No 'Next Page' link found" : "No 'Previous Page' link found", TRUE);
+    }
+}
+
+static void
+step_url_number(int step)
+{
+    char *orig_url;
+    char *p, *num_start, *num_end;
+    long val, new_val;
+    int width = 0;
+    Str new_url_str;
+    char fmt[32];
+    char new_num_buf[64];
+
+    if (Currentbuf == NULL)
+	return;
+
+    orig_url = parsedURL2Str(&Currentbuf->currentURL)->ptr;
+    if (orig_url == NULL || *orig_url == '\0' || strcmp(orig_url, "about:blank") == 0) {
+	disp_message("No valid URL to step", TRUE);
+	return;
+    }
+
+    /* Find the last contiguous digit run in orig_url */
+    num_start = NULL;
+    num_end = NULL;
+    p = orig_url + strlen(orig_url) - 1;
+
+    while (p >= orig_url) {
+	if (IS_DIGIT(*p)) {
+	    num_end = p + 1;
+	    while (p >= orig_url && IS_DIGIT(*p))
+		p--;
+	    num_start = p + 1;
+	    break;
+	}
+	p--;
+    }
+
+    if (num_start == NULL || num_end == NULL) {
+	disp_message("No number found in URL to step", TRUE);
+	return;
+    }
+
+    width = num_end - num_start;
+    val = atol(num_start);
+    new_val = val + step;
+    if (new_val < 0)
+	new_val = 0;
+
+    if (*num_start == '0' && width > 1) {
+	snprintf(fmt, sizeof(fmt), "%%0%dld", width);
+	snprintf(new_num_buf, sizeof(new_num_buf), fmt, new_val);
+    } else {
+	snprintf(new_num_buf, sizeof(new_num_buf), "%ld", new_val);
+    }
+
+    new_url_str = Strnew_charp_n(orig_url, num_start - orig_url);
+    Strcat_charp(new_url_str, new_num_buf);
+    Strcat_charp(new_url_str, num_end);
+
+    Buffer *cur_buf = Currentbuf;
+    ParsedURL p_url;
+    parseURL2(new_url_str->ptr, &p_url, baseURL(Currentbuf));
+    pushHashHist(URLHist, parsedURL2Str(&p_url)->ptr);
+    cmd_loadURL(new_url_str->ptr, baseURL(Currentbuf), NO_REFERER, NULL);
+    if (Currentbuf != cur_buf)
+	pushHashHist(URLHist, parsedURL2Str(&Currentbuf->currentURL)->ptr);
+
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+    disp_message(Sprintf("[URL Stepped %s] %ld -> %ld : %s",
+			 (step > 0) ? "+1" : "-1", val, new_val, new_url_str->ptr)->ptr, TRUE);
+}
+
+DEFUN(incURLNumber, INC_URL, "Increment number in current URL (Vimium ]a / g+)")
+{
+    step_url_number(1);
+}
+
+DEFUN(decURLNumber, DEC_URL, "Decrement number in current URL (Vimium [a / g-)")
+{
+    step_url_number(-1);
+}
+
+static void goto_heading(int direction);
+static void goto_code_block(int direction);
+
+DEFUN(vimiumRBracket, VIMIUM_RBRACKET, "Vimium-like ] prefix: ]] next page, ]a inc URL, ]t next tab, ]h next heading, ]c next code")
+{
+    int c = getch();
+    if (c == ESC_CODE || c == CTRL_G || c == CTRL_C)
+	return;
+    if (c == ']' || c == 'n' || c == 'N') {
+	follow_pagination_link(1);
+	return;
+    }
+    if (c == 'a' || c == '+' || c == '=') {
+	incURLNumber();
+	return;
+    }
+    if (c == 't') {
+	nextT();
+	return;
+    }
+    if (c == 'h') {
+	goto_heading(1);
+	return;
+    }
+    if (c == 'c') {
+	goto_code_block(1);
+	return;
+    }
+    if (IS_ASCII(c))
+	pushEvent((int)GlobalKeymap[c], NULL);
+}
+
+DEFUN(vimiumLBracket, VIMIUM_LBRACKET, "Vimium-like [ prefix: [[ prev page, [a dec URL, [t prev tab, [h prev heading, [c prev code")
+{
+    int c = getch();
+    if (c == ESC_CODE || c == CTRL_G || c == CTRL_C)
+	return;
+    if (c == '[' || c == 'p' || c == 'P') {
+	follow_pagination_link(-1);
+	return;
+    }
+    if (c == 'a' || c == '-') {
+	decURLNumber();
+	return;
+    }
+    if (c == 't') {
+	prevT();
+	return;
+    }
+    if (c == 'h') {
+	goto_heading(-1);
+	return;
+    }
+    if (c == 'c') {
+	goto_code_block(-1);
+	return;
+    }
+    if (IS_ASCII(c))
+	pushEvent((int)GlobalKeymap[c], NULL);
 }
 
 static void
@@ -5278,8 +5538,26 @@ interactive_vomnibar(int open_in_new_tab)
     /* Interactive Vomnibar loop */
     for (;;) {
 	VomniItem matches[64];
+	int scores[64];
 	int n_match = 0;
 
+	/* 1. Direct URL/Host item if query looks like a domain, IP, or URL */
+	if (qlen > 0) {
+	    char *q_trim = query;
+	    SKIP_BLANKS(q_trim);
+	    if (strstr(q_trim, "://") || strncmp(q_trim, "localhost", 9) == 0 ||
+		(strchr(q_trim, '.') && strchr(q_trim, ' ') == NULL)) {
+		char *direct_target = smart_url_or_search(query);
+		matches[n_match].kind = VOMNI_SEARCH;
+		matches[n_match].title = allocStr(Sprintf("Direct: %s", q_trim)->ptr, -1);
+		matches[n_match].url = allocStr(direct_target, -1);
+		matches[n_match].tab = NULL;
+		scores[n_match] = 200;
+		n_match++;
+	    }
+	}
+
+	/* 2. Search Engine item if query is present */
 	if (qlen > 0) {
 	    char *target = smart_url_or_search(query);
 	    if (target && *target) {
@@ -5287,15 +5565,62 @@ interactive_vomnibar(int open_in_new_tab)
 		matches[n_match].title = allocStr(Sprintf("Search: %s", query)->ptr, -1);
 		matches[n_match].url = allocStr(target, -1);
 		matches[n_match].tab = NULL;
+		scores[n_match] = 50;
 		n_match++;
 	    }
 	}
 
+	/* 3. Filter and score items */
 	for (int i = 0; i < n_all && n_match < 64; i++) {
-	    if (qlen == 0 ||
-		strcasestr(all_items[i].title, query) != NULL ||
-		strcasestr(all_items[i].url, query) != NULL) {
-		matches[n_match++] = all_items[i];
+	    if (qlen == 0) {
+		matches[n_match] = all_items[i];
+		scores[n_match] = (all_items[i].kind == VOMNI_TAB) ? 50 :
+				  (all_items[i].kind == VOMNI_BKMK) ? 30 : 10;
+		n_match++;
+	    } else {
+		/* Multi-token matching */
+		char qcopy[128];
+		strncpy(qcopy, query, sizeof(qcopy) - 1);
+		qcopy[sizeof(qcopy) - 1] = '\0';
+		char *tok = strtok(qcopy, " ");
+		int all_tok_matched = 1;
+		int score = 0;
+
+		while (tok != NULL) {
+		    char *in_title = strcasestr(all_items[i].title, tok);
+		    char *in_url = strcasestr(all_items[i].url, tok);
+		    if (!in_title && !in_url) {
+			all_tok_matched = 0;
+			break;
+		    }
+		    if (in_title && in_title == all_items[i].title) score += 40;
+		    else if (in_title) score += 20;
+		    if (in_url && in_url == all_items[i].url) score += 30;
+		    else if (in_url) score += 10;
+		    tok = strtok(NULL, " ");
+		}
+
+		if (all_tok_matched) {
+		    score += (all_items[i].kind == VOMNI_TAB) ? 60 :
+			     (all_items[i].kind == VOMNI_BKMK) ? 40 : 10;
+		    matches[n_match] = all_items[i];
+		    scores[n_match] = score;
+		    n_match++;
+		}
+	    }
+	}
+
+	/* Sort matches by score descending (simple insertion sort) */
+	for (int i = 0; i < n_match - 1; i++) {
+	    for (int j = i + 1; j < n_match; j++) {
+		if (scores[j] > scores[i]) {
+		    int tmp_s = scores[i];
+		    scores[i] = scores[j];
+		    scores[j] = tmp_s;
+		    VomniItem tmp_it = matches[i];
+		    matches[i] = matches[j];
+		    matches[j] = tmp_it;
+		}
 	    }
 	}
 
@@ -5307,7 +5632,7 @@ interactive_vomnibar(int open_in_new_tab)
 	displayBuffer(Currentbuf, B_FORCE_REDRAW);
 
 	int win_width = COLS - 6;
-	if (win_width > 90) win_width = 90;
+	if (win_width > 92) win_width = 92;
 	if (win_width < 30) win_width = 30;
 	int win_x = (COLS - win_width) / 2;
 	if (win_x < 1) win_x = 1;
@@ -5354,13 +5679,63 @@ interactive_vomnibar(int open_in_new_tab)
 
 	/* Status bar */
 	move(LINES - 1, 0);
-	message(Sprintf("Vomnibar: %d matches | Enter: Open | Tab/C-t: New Tab (%s) | C-n/C-p: Move | Esc: Exit",
+	message(Sprintf("Vomnibar: %d matches | Enter: Open | Tab/C-t: New Tab (%s) | ↑/↓/C-n/C-p: Move | Esc: Exit",
 			n_match, new_tab_mode ? "ON" : "OFF")->ptr, 0, 0);
 	refresh();
 
 	c = getch();
 
-	if (c == ESC_CODE || c == CTRL_G || c == CTRL_C) {
+	/* Handle Escape / ANSI Escape Sequences */
+	if (c == ESC_CODE) {
+	    if (check_input_timeout_ms(50)) {
+		int c2 = getch();
+		if (c2 == '[' || c2 == 'O') {
+		    int c3 = getch();
+		    if (c3 == 'A') { /* UP Arrow */
+			if (sel > 0) sel--;
+			continue;
+		    }
+		    if (c3 == 'B') { /* DOWN Arrow */
+			if (sel + 1 < n_match) sel++;
+			continue;
+		    }
+		    if (c3 == 'H' || c3 == '1') { /* Home */
+			sel = 0;
+			if (check_input_timeout_ms(20)) getch();
+			continue;
+		    }
+		    if (c3 == 'F' || c3 == '4') { /* End */
+			if (n_match > 0) sel = n_match - 1;
+			if (check_input_timeout_ms(20)) getch();
+			continue;
+		    }
+		    if (c3 == '5') { /* Page Up */
+			sel -= 5;
+			if (sel < 0) sel = 0;
+			if (check_input_timeout_ms(20)) getch();
+			continue;
+		    }
+		    if (c3 == '6') { /* Page Down */
+			sel += 5;
+			if (sel >= n_match) sel = (n_match > 0) ? n_match - 1 : 0;
+			if (check_input_timeout_ms(20)) getch();
+			continue;
+		    }
+		    if (c3 == '3') { /* Delete key */
+			if (check_input_timeout_ms(20)) getch();
+			if (qlen > 0) {
+			    query[--qlen] = '\0';
+			    sel = 0;
+			}
+			continue;
+		    }
+		}
+	    }
+	    /* Standalone ESC */
+	    break;
+	}
+
+	if (c == CTRL_G || c == CTRL_C) {
 	    break;
 	}
 
@@ -6720,6 +7095,14 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
 	skip_to_main_content();
 	return;
     }
+    if (c == '+' || c == '=') {
+	incURLNumber();
+	return;
+    }
+    if (c == '-') {
+	decURLNumber();
+	return;
+    }
     if (c == 'h' || c == 'H' || c == 'o' || c == 'O') {
 	show_table_of_contents();
 	return;
@@ -6817,6 +7200,14 @@ DEFUN(vimiumY, VIMIUM_Y, "Vimium-like prefix for yy/yf/yi/yt/yp/ym/ya/yA")
     }
     if (c == 'f') {
 	hint_mode(HINT_ACT_YANK);
+	return;
+    }
+    if (c == 'F') {
+	hint_mode(HINT_ACT_YANK_MD);
+	return;
+    }
+    if (c == 'd' || c == 'D') {
+	hint_mode(HINT_ACT_DOWNLOAD);
 	return;
     }
     if (c == 'i') {

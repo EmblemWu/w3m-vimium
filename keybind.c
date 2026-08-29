@@ -29,7 +29,7 @@ unsigned char GlobalKeymap[128] = {
     /*  P       Q       R       S       T       U       V       W        */
     tabPasteURL, quitfm, reload, svBuf, tabVomnibar, goURL, caretVisualMode, movLW,
     /*  X       Y       Z       [       \       ]       ^       _        */
-    restoreTab, nulcmd, ctrCsrH, topA, nulcmd, lastA, linbeg, nulcmd,
+    restoreTab, nulcmd, ctrCsrH, vimiumLBracket, nulcmd, vimiumRBracket, linbeg, nulcmd,
     /*  `       a       b       c       d       e       f       g        */
     nulcmd, svA, vomnibar, caretMode, hpgFore, nulcmd, hintL, vimiumG,
     /*  h       i       j       k       l       m       n       o        */

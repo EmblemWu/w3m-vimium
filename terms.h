@@ -39,5 +39,6 @@ extern int get_pixel_per_cell(int *ppc, int *ppl);
 #endif
 
 char getch(void);
+extern int check_input_timeout_ms(int ms);
 
 #endif				/* not TERMS_H */
