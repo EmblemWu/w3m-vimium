@@ -23,17 +23,17 @@ unsigned char GlobalKeymap[128] = {
     /*  8       9       :       ;       <       =       >       ?        */
     nulcmd, nulcmd, chkURL, chkWORD, shiftl, pginfo, shiftr, ldhelp,
     /*  @       A       B       C       D       E       F       G        */
-    readsh, nulcmd, backBf, caretMode, ldDL, editBf, hintTabL, goLineL,
+    readsh, nulcmd, tabVomnibarModal, caretMode, ldDL, editBf, hintTabL, goLineL,
     /*  H       I       J       K       L       M       N       O        */
-    backBf, followI, nextT, prevT, nextBf, extbrz, srchprv, tabSmartURL,
+    backBf, followI, nextT, prevT, nextBf, extbrz, srchprv, tabVomnibarModal,
     /*  P       Q       R       S       T       U       V       W        */
     tabPasteURL, quitfm, reload, svBuf, tabVomnibar, goURL, caretVisualMode, movLW,
     /*  X       Y       Z       [       \       ]       ^       _        */
     restoreTab, nulcmd, ctrCsrH, topA, nulcmd, lastA, linbeg, nulcmd,
     /*  `       a       b       c       d       e       f       g        */
-    nulcmd, svA, pgBack, caretMode, hpgFore, nulcmd, hintL, vimiumG,
+    nulcmd, svA, vomnibar, caretMode, hpgFore, nulcmd, hintL, vimiumG,
     /*  h       i       j       k       l       m       n       o        */
-    col1L, peekIMG, lup1, ldown1, col1R, setVimMark, srchnxt, smartURL,
+    col1L, peekIMG, lup1, ldown1, col1R, setVimMark, srchnxt, vomnibar,
     /*  p       q       r       s       t       u       v       w        */
     pasteURL, qquitfm, dispVer, selMn, tabSmartURL, hpgBack, caretVisualMode, movRW,
     /*  x       y       z       {       |       }       ~       DEL      */

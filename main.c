@@ -5044,6 +5044,443 @@ DEFUN(tabEditCurrentURL, TAB_EDIT_URL, "Edit current URL and open in new tab (Vi
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
 }
 
+typedef enum {
+    VOMNI_TAB = 0,
+    VOMNI_BKMK,
+    VOMNI_HIST,
+    VOMNI_SEARCH
+} VomniKind;
+
+typedef struct {
+    VomniKind kind;
+    char *title;
+    char *url;
+    TabBuffer *tab;
+} VomniItem;
+
+#define MAX_VOMNI_ITEMS 256
+
+static void
+quick_bookmark_current_page(void)
+{
+    const char *home = getenv("HOME");
+    char bpath[PATH_MAX];
+    char *url, *title;
+    FILE *f;
+    Str content;
+    int file_exists = 0;
+
+    if (Currentbuf == NULL)
+	return;
+
+    url = parsedURL2Str(&Currentbuf->currentURL)->ptr;
+    title = (Currentbuf->buffername && *Currentbuf->buffername) ? Currentbuf->buffername : url;
+
+    if (url == NULL || *url == '\0' || strcmp(url, "about:blank") == 0) {
+	disp_message("Cannot bookmark empty page", TRUE);
+	return;
+    }
+
+    if (BookmarkFile && *BookmarkFile) {
+	strncpy(bpath, BookmarkFile, sizeof(bpath) - 1);
+	bpath[sizeof(bpath) - 1] = '\0';
+    } else if (home) {
+	snprintf(bpath, sizeof(bpath), "%s/.w3m/bookmark.html", home);
+    } else {
+	disp_message("Cannot determine bookmark path", TRUE);
+	return;
+    }
+
+    f = fopen(bpath, "r");
+    if (f) {
+	file_exists = 1;
+	fclose(f);
+    }
+
+    if (!file_exists) {
+	f = fopen(bpath, "w");
+	if (f) {
+	    fprintf(f, "<html>\n<head><title>Bookmarks</title></head>\n<body>\n<h1>Bookmarks</h1>\n<ul>\n");
+	    fprintf(f, "<li><a href=\"%s\">%s</a>\n", url, title);
+	    fprintf(f, "</ul>\n</body>\n</html>\n");
+	    fclose(f);
+	    disp_message(Sprintf("Saved new bookmark: %s", title)->ptr, TRUE);
+	    return;
+	}
+    } else {
+	f = fopen(bpath, "r");
+	if (f) {
+	    char line_buf[4096];
+	    int inserted = 0;
+	    content = Strnew();
+	    while (fgets(line_buf, sizeof(line_buf), f)) {
+		if (!inserted && strcasestr(line_buf, "</ul>") != NULL) {
+		    Strcat(content, Sprintf("<li><a href=\"%s\">%s</a>\n", url, title));
+		    inserted = 1;
+		}
+		Strcat_charp(content, line_buf);
+	    }
+	    fclose(f);
+	    if (!inserted) {
+		Strcat(content, Sprintf("<li><a href=\"%s\">%s</a>\n", url, title));
+	    }
+	    f = fopen(bpath, "w");
+	    if (f) {
+		fputs(content->ptr, f);
+		fclose(f);
+		disp_message(Sprintf("Added bookmark: %s", title)->ptr, TRUE);
+		return;
+	    }
+	}
+    }
+    disp_message("Failed to write bookmark file", TRUE);
+}
+
+DEFUN(quickBookmarkCurrent, QUICK_BOOKMARK, "Quickly add current page to bookmarks without CGI form")
+{
+    quick_bookmark_current_page();
+}
+
+static void
+interactive_vomnibar(int open_in_new_tab)
+{
+    VomniItem all_items[MAX_VOMNI_ITEMS];
+    int n_all = 0;
+    TabBuffer *tb;
+    const char *home = getenv("HOME");
+    char bpath[PATH_MAX];
+    FILE *bf;
+    char line_buf[4096];
+    char query[128] = "";
+    int qlen = 0;
+    int sel = 0;
+    int new_tab_mode = open_in_new_tab;
+    int c;
+
+    /* 1. Collect open tabs */
+    for (tb = FirstTab; tb != NULL && n_all < MAX_VOMNI_ITEMS; tb = tb->nextTab) {
+	if (tb->currentBuffer) {
+	    char *u = parsedURL2Str(&tb->currentBuffer->currentURL)->ptr;
+	    if (u && *u && strcmp(u, "about:blank") != 0) {
+		all_items[n_all].kind = VOMNI_TAB;
+		all_items[n_all].title = allocStr(tb->currentBuffer->buffername ? tb->currentBuffer->buffername : "untitled", -1);
+		all_items[n_all].url = allocStr(u, -1);
+		all_items[n_all].tab = tb;
+		n_all++;
+	    }
+	}
+    }
+
+    /* 2. Collect bookmarks */
+    if (BookmarkFile && *BookmarkFile)
+	strncpy(bpath, BookmarkFile, sizeof(bpath) - 1);
+    else if (home)
+	snprintf(bpath, sizeof(bpath), "%s/.w3m/bookmark.html", home);
+    else
+	bpath[0] = '\0';
+
+    if (bpath[0] && (bf = fopen(bpath, "r")) != NULL) {
+	while (fgets(line_buf, sizeof(line_buf), bf) && n_all < MAX_VOMNI_ITEMS) {
+	    char *p = strcasestr(line_buf, "<a href=\"");
+	    if (p) {
+		char *u_start = p + 9;
+		char *u_end = strchr(u_start, '"');
+		if (u_end) {
+		    *u_end = '\0';
+		    char *t_start = u_end + 1;
+		    while (*t_start && *t_start != '>') t_start++;
+		    if (*t_start == '>') t_start++;
+		    char *t_end = strcasestr(t_start, "</a>");
+		    if (t_end) *t_end = '\0';
+		    else {
+			char *nl = strchr(t_start, '\n');
+			if (nl) *nl = '\0';
+		    }
+		    if (*u_start) {
+			int dupe = 0;
+			for (int k = 0; k < n_all; k++) {
+			    if (strcmp(all_items[k].url, u_start) == 0) {
+				dupe = 1;
+				break;
+			    }
+			}
+			if (!dupe) {
+			    all_items[n_all].kind = VOMNI_BKMK;
+			    all_items[n_all].title = allocStr((*t_start) ? t_start : u_start, -1);
+			    all_items[n_all].url = allocStr(u_start, -1);
+			    all_items[n_all].tab = NULL;
+			    n_all++;
+			}
+		    }
+		}
+	    }
+	}
+	fclose(bf);
+    }
+
+    /* 3. Collect from URLHist */
+    if (URLHist && URLHist->list) {
+	ListItem *it;
+	for (it = URLHist->list->last; it != NULL && n_all < MAX_VOMNI_ITEMS; it = it->prev) {
+	    char *u = (char *)it->ptr;
+	    if (u && *u && strcmp(u, "about:blank") != 0) {
+		int dupe = 0;
+		for (int k = 0; k < n_all; k++) {
+		    if (strcmp(all_items[k].url, u) == 0) {
+			dupe = 1;
+			break;
+		    }
+		}
+		if (!dupe) {
+		    all_items[n_all].kind = VOMNI_HIST;
+		    all_items[n_all].title = allocStr(u, -1);
+		    all_items[n_all].url = allocStr(u, -1);
+		    all_items[n_all].tab = NULL;
+		    n_all++;
+		}
+	    }
+	}
+    }
+
+    /* 4. Collect from ~/.w3m/history */
+    if (home && n_all < MAX_VOMNI_ITEMS) {
+	char hpath[PATH_MAX];
+	FILE *hf;
+	snprintf(hpath, sizeof(hpath), "%s/.w3m/history", home);
+	hf = fopen(hpath, "r");
+	if (hf) {
+	    while (fgets(line_buf, sizeof(line_buf), hf) && n_all < MAX_VOMNI_ITEMS) {
+		char *nl = strchr(line_buf, '\n');
+		char *p_line = line_buf;
+		if (nl) *nl = '\0';
+		SKIP_BLANKS(p_line);
+		if (*p_line && strcmp(p_line, "about:blank") != 0) {
+		    int dupe = 0;
+		    for (int k = 0; k < n_all; k++) {
+			if (strcmp(all_items[k].url, p_line) == 0) {
+			    dupe = 1;
+			    break;
+			}
+		    }
+		    if (!dupe) {
+			all_items[n_all].kind = VOMNI_HIST;
+			all_items[n_all].title = allocStr(p_line, -1);
+			all_items[n_all].url = allocStr(p_line, -1);
+			all_items[n_all].tab = NULL;
+			n_all++;
+		    }
+		}
+	    }
+	    fclose(hf);
+	}
+    }
+
+    /* Interactive Vomnibar loop */
+    for (;;) {
+	VomniItem matches[64];
+	int n_match = 0;
+
+	if (qlen > 0) {
+	    char *target = smart_url_or_search(query);
+	    if (target && *target) {
+		matches[n_match].kind = VOMNI_SEARCH;
+		matches[n_match].title = allocStr(Sprintf("Search: %s", query)->ptr, -1);
+		matches[n_match].url = allocStr(target, -1);
+		matches[n_match].tab = NULL;
+		n_match++;
+	    }
+	}
+
+	for (int i = 0; i < n_all && n_match < 64; i++) {
+	    if (qlen == 0 ||
+		strcasestr(all_items[i].title, query) != NULL ||
+		strcasestr(all_items[i].url, query) != NULL) {
+		matches[n_match++] = all_items[i];
+	    }
+	}
+
+	if (sel >= n_match)
+	    sel = (n_match > 0) ? n_match - 1 : 0;
+	if (sel < 0)
+	    sel = 0;
+
+	displayBuffer(Currentbuf, B_FORCE_REDRAW);
+
+	int win_width = COLS - 6;
+	if (win_width > 90) win_width = 90;
+	if (win_width < 30) win_width = 30;
+	int win_x = (COLS - win_width) / 2;
+	if (win_x < 1) win_x = 1;
+
+	int disp_items = (LINES - 8 > 0) ? (LINES - 8) : 4;
+	if (disp_items > 10) disp_items = 10;
+	int win_y = (LINES > disp_items + 6) ? (LINES - (disp_items + 6)) / 2 : 1;
+	if (win_y < 1) win_y = 1;
+
+	/* Header */
+	move(win_y, win_x);
+	standout();
+	addstr(Sprintf(" [ Vomnibar ] %s (Target: %s) ",
+		       qlen > 0 ? query : "Search / History / Bookmarks",
+		       new_tab_mode ? "NEW TAB" : "CURRENT TAB")->ptr);
+	standend();
+
+	/* Search input box */
+	move(win_y + 1, win_x);
+	bold();
+	addstr(" > Search: ");
+	boldend();
+	underline();
+	addstr(Sprintf("%-50.50s", query)->ptr);
+	underlineend();
+
+	/* Results */
+	for (int i = 0; i < disp_items && i < n_match; i++) {
+	    int line_y = win_y + 3 + i;
+	    move(line_y, win_x);
+
+	    const char *tag = (matches[i].kind == VOMNI_TAB)    ? "[TAB] " :
+			      (matches[i].kind == VOMNI_BKMK)   ? "[BKMK]" :
+			      (matches[i].kind == VOMNI_SEARCH) ? "[FIND]" : "[HIST]";
+
+	    if (i == sel) {
+		standout();
+		addstr(Sprintf(" > %s %-25.25s  %s ", tag, matches[i].title, matches[i].url)->ptr);
+		standend();
+	    } else {
+		addstr(Sprintf("   %s %-25.25s  %s ", tag, matches[i].title, matches[i].url)->ptr);
+	    }
+	}
+
+	/* Status bar */
+	move(LINES - 1, 0);
+	message(Sprintf("Vomnibar: %d matches | Enter: Open | Tab/C-t: New Tab (%s) | C-n/C-p: Move | Esc: Exit",
+			n_match, new_tab_mode ? "ON" : "OFF")->ptr, 0, 0);
+	refresh();
+
+	c = getch();
+
+	if (c == ESC_CODE || c == CTRL_G || c == CTRL_C) {
+	    break;
+	}
+
+	if (c == '\r' || c == '\n') {
+	    if (n_match > 0 && sel < n_match) {
+		if (matches[sel].kind == VOMNI_TAB && matches[sel].tab != NULL && !new_tab_mode) {
+		    CurrentTab = matches[sel].tab;
+		    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+		    disp_message(Sprintf("Switched to tab: %s", matches[sel].title)->ptr, TRUE);
+		    return;
+		} else {
+		    char *tgt = matches[sel].url;
+		    if (tgt && *tgt) {
+			if (new_tab_mode) {
+			    _newT();
+			    Buffer *buf = Currentbuf;
+			    cmd_loadURL(tgt, baseURL(Currentbuf), NO_REFERER, NULL);
+			    if (buf != Currentbuf) delBuffer(buf);
+			    else deleteTab(CurrentTab);
+			} else {
+			    Buffer *cur_buf = Currentbuf;
+			    ParsedURL p_url;
+			    parseURL2(tgt, &p_url, baseURL(Currentbuf));
+			    pushHashHist(URLHist, parsedURL2Str(&p_url)->ptr);
+			    cmd_loadURL(tgt, baseURL(Currentbuf), NO_REFERER, NULL);
+			    if (Currentbuf != cur_buf)
+				pushHashHist(URLHist, parsedURL2Str(&Currentbuf->currentURL)->ptr);
+			}
+		    }
+		    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+		    return;
+		}
+	    } else if (qlen > 0) {
+		char *tgt = smart_url_or_search(query);
+		if (tgt && *tgt) {
+		    if (new_tab_mode) {
+			_newT();
+			Buffer *buf = Currentbuf;
+			cmd_loadURL(tgt, baseURL(Currentbuf), NO_REFERER, NULL);
+			if (buf != Currentbuf) delBuffer(buf);
+			else deleteTab(CurrentTab);
+		    } else {
+			Buffer *cur_buf = Currentbuf;
+			ParsedURL p_url;
+			parseURL2(tgt, &p_url, baseURL(Currentbuf));
+			pushHashHist(URLHist, parsedURL2Str(&p_url)->ptr);
+			cmd_loadURL(tgt, baseURL(Currentbuf), NO_REFERER, NULL);
+			if (Currentbuf != cur_buf)
+			    pushHashHist(URLHist, parsedURL2Str(&Currentbuf->currentURL)->ptr);
+		    }
+		}
+		displayBuffer(Currentbuf, B_FORCE_REDRAW);
+		return;
+	    }
+	    break;
+	}
+
+	if (c == '\t' || c == 0x14 /* Ctrl-T */) {
+	    new_tab_mode = !new_tab_mode;
+	    continue;
+	}
+
+	if (c == 0x0e /* Ctrl-N */ || c == 0x0a /* Ctrl-J */) {
+	    if (sel + 1 < n_match) sel++;
+	    continue;
+	}
+
+	if (c == 0x10 /* Ctrl-P */ || c == 0x0b /* Ctrl-K */) {
+	    if (sel > 0) sel--;
+	    continue;
+	}
+
+	if (c == '\b' || c == DEL_CODE || c == 0x7f) {
+	    if (qlen > 0) {
+		query[--qlen] = '\0';
+		sel = 0;
+	    } else {
+		bell();
+	    }
+	    continue;
+	}
+
+	if (c == 0x15 /* Ctrl-U */) {
+	    query[0] = '\0';
+	    qlen = 0;
+	    sel = 0;
+	    continue;
+	}
+
+	if (c == 0x17 /* Ctrl-W */) {
+	    while (qlen > 0 && query[qlen - 1] == ' ') qlen--;
+	    while (qlen > 0 && query[qlen - 1] != ' ') qlen--;
+	    query[qlen] = '\0';
+	    sel = 0;
+	    continue;
+	}
+
+	if (IS_ASCII(c) && c >= 32 && c <= 126) {
+	    if (qlen < (int)sizeof(query) - 1) {
+		query[qlen++] = (char)c;
+		query[qlen] = '\0';
+		sel = 0;
+	    }
+	    continue;
+	}
+    }
+
+    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+}
+
+DEFUN(vomnibar, VOMNIBAR, "Interactive Vomnibar: Search Bookmarks, History & Tabs")
+{
+    interactive_vomnibar(0);
+}
+
+DEFUN(tabVomnibarModal, TAB_VOMNIBAR_MODAL, "Interactive Vomnibar in New Tab")
+{
+    interactive_vomnibar(1);
+}
+
 static BufferPoint mark_table[26];
 static int mark_valid[26] = {0};
 
@@ -6317,6 +6754,14 @@ DEFUN(vimiumG, VIMIUM_G, "Vimium-like prefix for gg/gt/gT/gu/gU/gi/g</g>/g0/g$/g
     }
     if (c == 'E') {
 	editCurrentURL();
+	return;
+    }
+    if (c == 'a') {
+	quick_bookmark_current_page();
+	return;
+    }
+    if (c == 'b') {
+	ldBmark();
 	return;
     }
     if (c == 'x') {
