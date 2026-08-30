@@ -56,6 +56,18 @@ struct zlib_handle {
     int initialized;
 };
 
+#define CHUNK_STATE_HEADER        0
+#define CHUNK_STATE_DATA          1
+#define CHUNK_STATE_TRAILER_CRLF  2
+#define CHUNK_STATE_TRAILERS      3
+#define CHUNK_STATE_EOS           4
+
+struct chunked_handle {
+    union input_stream *is;
+    long long chunk_remaining;
+    int state;
+};
+
 
 struct base_stream {
     struct stream_buffer stream;
@@ -113,6 +125,15 @@ struct zlib_stream {
     void (*close) ();
 };
 
+struct chunked_stream {
+    struct stream_buffer stream;
+    struct chunked_handle *handle;
+    char type;
+    char iseos;
+    int (*read) ();
+    void (*close) ();
+};
+
 union input_stream {
     struct base_stream base;
     struct file_stream file;
@@ -122,6 +143,7 @@ union input_stream {
 #endif				/* USE_SSL */
     struct encoded_stream ens;
     struct zlib_stream zlib;
+    struct chunked_stream chunked;
 };
 
 typedef struct base_stream *BaseStream;
@@ -132,6 +154,7 @@ typedef struct ssl_stream *SSLStream;
 #endif				/* USE_SSL */
 typedef struct encoded_stream *EncodedStrStream;
 typedef struct zlib_stream *ZlibStrStream;
+typedef struct chunked_stream *ChunkedStrStream;
 
 typedef union input_stream *InputStream;
 
@@ -143,6 +166,7 @@ extern InputStream newSSLStream(SSL * ssl, int sock);
 #endif
 extern InputStream newEncodedStream(InputStream is, char encoding);
 extern InputStream newZlibStream(InputStream is, int is_gzip);
+extern InputStream newChunkedStream(InputStream is);
 extern int ISclose(InputStream stream);
 extern int ISgetc(InputStream stream);
 extern int ISundogetc(InputStream stream);
@@ -167,6 +191,7 @@ extern Str ssl_get_certificate(SSL * ssl, char *hostname);
 #define IST_SSL		3
 #define IST_ENCODED	4
 #define IST_ZLIB	5
+#define IST_CHUNKED	6
 #define IST_UNCLOSE	0x10
 
 #define IStype(stream) ((stream)->base.type)

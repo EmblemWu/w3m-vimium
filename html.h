@@ -67,6 +67,7 @@ typedef struct {
     unsigned char scheme;
     char is_cgi;
     char encoding;
+    char is_chunked;
     union input_stream *stream;
     char *ext;
     int compression;

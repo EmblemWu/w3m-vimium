@@ -721,7 +721,14 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 		refresh();
 	    }
 	}
-	if (!strncasecmp(lineBuf2->ptr, "content-transfer-encoding:", 26)) {
+	if (!strncasecmp(lineBuf2->ptr, "transfer-encoding:", 18)) {
+	    p = lineBuf2->ptr + 18;
+	    while (IS_SPACE(*p))
+		p++;
+	    if (strcasestr(p, "chunked"))
+		uf->is_chunked = 1;
+	}
+	else if (!strncasecmp(lineBuf2->ptr, "content-transfer-encoding:", 26)) {
 	    p = lineBuf2->ptr + 26;
 	    while (IS_SPACE(*p))
 		p++;
@@ -920,6 +927,9 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 	addnewline(newBuf, "", propBuffer, NULL, 0, -1, -1);
     if (src)
 	fclose(src);
+    if (uf->is_chunked && uf->stream) {
+	uf->stream = newChunkedStream(uf->stream);
+    }
 }
 
 char *
@@ -1873,7 +1883,7 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 #endif
 	readHeader(&f, t_buf, FALSE, &pu);
 	if (((http_response_code >= 301 && http_response_code <= 303)
-	     || http_response_code == 307)
+	     || http_response_code == 307 || http_response_code == 308)
 	    && (p = checkHeader(t_buf, "Location:")) != NULL
 	    && checkRedirection(&pu)) {
 	    /* document moved */

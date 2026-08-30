@@ -590,13 +590,12 @@ static void
 SSL_write_from_file(SSL * ssl, char *file)
 {
     FILE *fd;
-    int c;
-    char buf[1];
+    int n;
+    char buf[8192];
     fd = fopen(file, "r");
     if (fd != NULL) {
-	while ((c = fgetc(fd)) != EOF) {
-	    buf[0] = c;
-	    SSL_write(ssl, buf, 1);
+	while ((n = fread(buf, 1, sizeof(buf), fd)) > 0) {
+	    SSL_write(ssl, buf, n);
 	}
 	fclose(fd);
     }
@@ -608,13 +607,12 @@ static void
 write_from_file(int sock, char *file)
 {
     FILE *fd;
-    int c;
-    char buf[1];
+    int n;
+    char buf[8192];
     fd = fopen(file, "r");
     if (fd != NULL) {
-	while ((c = fgetc(fd)) != EOF) {
-	    buf[0] = c;
-	    write(sock, buf, 1);
+	while ((n = fread(buf, 1, sizeof(buf), fd)) > 0) {
+	    write(sock, buf, n);
 	}
 	fclose(fd);
     }
@@ -1745,6 +1743,7 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
 	    Strcat(s, Sprintf(":%d", target->port));
 	Strcat_charp(s, "\r\n");
     }
+    Strcat_charp(s, "Connection: close\r\n");
     if (target->is_nocache || NoCache) {
 	Strcat_charp(s, "Pragma: no-cache\r\n");
 	Strcat_charp(s, "Cache-control: no-cache\r\n");
@@ -1841,7 +1840,7 @@ HTTPrequest(ParsedURL *pu, ParsedURL *current, HRequest *hr, TextList *extra)
     tmp = HTTPrequestMethod(hr);
     Strcat_charp(tmp, " ");
     Strcat_charp(tmp, HTTPrequestURI(pu, hr)->ptr);
-    Strcat_charp(tmp, " HTTP/1.0\r\n");
+    Strcat_charp(tmp, " HTTP/1.1\r\n");
     if (hr->referer == NO_REFERER)
 	Strcat_charp(tmp, otherinfo(pu, NULL, NULL));
     else

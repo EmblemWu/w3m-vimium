@@ -38,6 +38,9 @@ static void ens_close(struct ens_handle *handle);
 static int zlib_stream_read(struct zlib_handle *handle, char *buf, int len);
 static void zlib_stream_close(struct zlib_handle *handle);
 
+static int chunked_stream_read(struct chunked_handle *handle, char *buf, int len);
+static void chunked_stream_close(struct chunked_handle *handle);
+
 static void memchop(char *p, int *len);
 
 static void
@@ -221,6 +224,26 @@ newZlibStream(InputStream is, int is_gzip)
     return stream;
 }
 
+InputStream
+newChunkedStream(InputStream is)
+{
+    InputStream stream;
+
+    if (is == NULL)
+	return NULL;
+    stream = NewWithoutGC(union input_stream);
+    init_base_stream(&stream->base, STREAM_BUF_SIZE);
+    stream->chunked.type = IST_CHUNKED;
+    stream->chunked.handle = NewWithoutGC(struct chunked_handle);
+    memset(stream->chunked.handle, 0, sizeof(struct chunked_handle));
+    stream->chunked.handle->is = is;
+    stream->chunked.handle->state = CHUNK_STATE_HEADER;
+    stream->chunked.handle->chunk_remaining = 0;
+    stream->chunked.read = (int (*)())chunked_stream_read;
+    stream->chunked.close = (void (*)())chunked_stream_close;
+    return stream;
+}
+
 int
 ISclose(InputStream stream)
 {
@@ -377,6 +400,8 @@ ISfileno(InputStream stream)
 	return ISfileno(stream->ens.handle->is);
     case IST_ZLIB:
 	return ISfileno(stream->zlib.handle->is);
+    case IST_CHUNKED:
+	return ISfileno(stream->chunked.handle->is);
     default:
 	return -1;
     }
@@ -886,4 +911,109 @@ zlib_stream_read(struct zlib_handle *handle, char *buf, int len)
 
     return (int)(len - handle->z.avail_out);
 }
+
+static void
+chunked_stream_close(struct chunked_handle *handle)
+{
+    if (handle) {
+	if (handle->is) {
+	    ISclose(handle->is);
+	    handle->is = NULL;
+	}
+	xfree(handle);
+    }
+}
+
+static int
+chunked_stream_read(struct chunked_handle *handle, char *buf, int len)
+{
+    int total_read = 0;
+    struct growbuf gb;
+
+    if (!handle || !handle->is || len <= 0)
+	return 0;
+
+    growbuf_init_without_GC(&gb);
+
+    while (total_read < len && handle->state != CHUNK_STATE_EOS) {
+	switch (handle->state) {
+	case CHUNK_STATE_HEADER: {
+	    ISgets_to_growbuf(handle->is, &gb, TRUE);
+	    if (gb.length == 0) {
+		/* Unexpected EOF or connection closed */
+		handle->state = CHUNK_STATE_EOS;
+		break;
+	    }
+	    char *p = gb.ptr;
+	    while (*p == ' ' || *p == '\t')
+		p++;
+	    if (*p == '\r' || *p == '\n' || *p == '\0') {
+		/* Blank line before chunk header, skip and read next line */
+		break;
+	    }
+	    char *endptr = NULL;
+	    unsigned long long chunk_sz = strtoull(p, &endptr, 16);
+	    if (endptr == p) {
+		/* Invalid chunk header */
+		handle->state = CHUNK_STATE_EOS;
+		break;
+	    }
+	    if (chunk_sz == 0) {
+		handle->state = CHUNK_STATE_TRAILERS;
+	    } else {
+		handle->chunk_remaining = (long long)chunk_sz;
+		handle->state = CHUNK_STATE_DATA;
+	    }
+	    break;
+	}
+	case CHUNK_STATE_DATA: {
+	    int to_read = len - total_read;
+	    if ((long long)to_read > handle->chunk_remaining)
+		to_read = (int)handle->chunk_remaining;
+	    int nread = ISread_n(handle->is, buf + total_read, to_read);
+	    if (nread <= 0) {
+		handle->state = CHUNK_STATE_EOS;
+		break;
+	    }
+	    total_read += nread;
+	    handle->chunk_remaining -= nread;
+	    if (handle->chunk_remaining == 0) {
+		handle->state = CHUNK_STATE_TRAILER_CRLF;
+	    }
+	    break;
+	}
+	case CHUNK_STATE_TRAILER_CRLF: {
+	    /* Consume the \r\n immediately following the chunk data */
+	    ISgets_to_growbuf(handle->is, &gb, TRUE);
+	    handle->state = CHUNK_STATE_HEADER;
+	    break;
+	}
+	case CHUNK_STATE_TRAILERS: {
+	    /* Consume any trailer headers until empty line */
+	    while (1) {
+		ISgets_to_growbuf(handle->is, &gb, TRUE);
+		if (gb.length == 0)
+		    break;
+		char *p = gb.ptr;
+		while (*p == ' ' || *p == '\t')
+		    p++;
+		if (*p == '\r' || *p == '\n' || *p == '\0')
+		    break;
+	    }
+	    handle->state = CHUNK_STATE_EOS;
+	    break;
+	}
+	case CHUNK_STATE_EOS:
+	default:
+	    break;
+	}
+
+	if (total_read > 0)
+	    break;
+    }
+
+    growbuf_clear(&gb);
+    return total_read;
+}
+
 
