@@ -5059,8 +5059,16 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 
 	hseq = 0;
 
-	if (parsedtag_get_value(tag, ATTR_HREF, &p))
+	if (parsedtag_get_value(tag, ATTR_HREF, &p)) {
 	    obuf->anchor.url = Strnew_charp(p)->ptr;
+	    if (p && (strncasecmp(p, "http://", 7) == 0 || strncasecmp(p, "https://", 8) == 0)) {
+		ParsedURL pu;
+		parseURL(p, &pu, NULL);
+		if (pu.host && *pu.host) {
+		    prefetch_dns(pu.host, pu.port ? pu.port : (pu.scheme == SCM_HTTPS ? 443 : 80));
+		}
+	    }
+	}
 	if (parsedtag_get_value(tag, ATTR_TARGET, &p))
 	    obuf->anchor.target = Strnew_charp(p)->ptr;
 	if (parsedtag_get_value(tag, ATTR_REFERER, &p))

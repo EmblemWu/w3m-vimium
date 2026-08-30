@@ -321,6 +321,94 @@ str_to_ssl_version(const char *name)
 }
 #endif				/* SSL_CTX_set_min_proto_version */
 
+#ifdef USE_SSL
+typedef struct {
+    char host[128];
+    int port;
+    SSL_SESSION *session;
+    time_t expire;
+} SSLSessionEntry;
+
+#define SSL_SESSION_CACHE_MAX 64
+static SSLSessionEntry ssl_session_cache[SSL_SESSION_CACHE_MAX];
+static int ssl_session_count = 0;
+static pthread_mutex_t ssl_session_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static SSL_SESSION *
+lookup_ssl_session(const char *host, int port)
+{
+    int i;
+    time_t now = time(NULL);
+    if (!host) return NULL;
+    pthread_mutex_lock(&ssl_session_mutex);
+    for (i = 0; i < ssl_session_count; i++) {
+	if (ssl_session_cache[i].port == port &&
+	    ssl_session_cache[i].session != NULL &&
+	    strcmp(ssl_session_cache[i].host, host) == 0) {
+	    if (now < ssl_session_cache[i].expire) {
+		SSL_SESSION *sess = ssl_session_cache[i].session;
+		pthread_mutex_unlock(&ssl_session_mutex);
+		return sess;
+	    }
+	}
+    }
+    pthread_mutex_unlock(&ssl_session_mutex);
+    return NULL;
+}
+
+static void
+store_ssl_session(const char *host, int port, SSL_SESSION *session)
+{
+    int i, idx;
+    if (!host || !session) return;
+    pthread_mutex_lock(&ssl_session_mutex);
+    for (i = 0; i < ssl_session_count; i++) {
+	if (ssl_session_cache[i].port == port &&
+	    strcmp(ssl_session_cache[i].host, host) == 0) {
+	    if (ssl_session_cache[i].session != session) {
+		if (ssl_session_cache[i].session)
+		    SSL_SESSION_free(ssl_session_cache[i].session);
+		ssl_session_cache[i].session = session;
+	    }
+	    ssl_session_cache[i].expire = time(NULL) + 600; /* 10 min session cache */
+	    pthread_mutex_unlock(&ssl_session_mutex);
+	    return;
+	}
+    }
+    if (ssl_session_count < SSL_SESSION_CACHE_MAX) {
+	idx = ssl_session_count++;
+    } else {
+	idx = rand() % SSL_SESSION_CACHE_MAX;
+	if (ssl_session_cache[idx].session)
+	    SSL_SESSION_free(ssl_session_cache[idx].session);
+    }
+    strncpy(ssl_session_cache[idx].host, host, sizeof(ssl_session_cache[idx].host) - 1);
+    ssl_session_cache[idx].host[sizeof(ssl_session_cache[idx].host) - 1] = '\0';
+    ssl_session_cache[idx].port = port;
+    ssl_session_cache[idx].session = session;
+    ssl_session_cache[idx].expire = time(NULL) + 600;
+    pthread_mutex_unlock(&ssl_session_mutex);
+}
+
+static void
+invalidate_ssl_session(const char *host, int port)
+{
+    int i;
+    if (!host) return;
+    pthread_mutex_lock(&ssl_session_mutex);
+    for (i = 0; i < ssl_session_count; i++) {
+	if (ssl_session_cache[i].port == port &&
+	    strcmp(ssl_session_cache[i].host, host) == 0) {
+	    if (ssl_session_cache[i].session) {
+		SSL_SESSION_free(ssl_session_cache[i].session);
+		ssl_session_cache[i].session = NULL;
+	    }
+	    break;
+	}
+    }
+    pthread_mutex_unlock(&ssl_session_mutex);
+}
+
 static SSL *
 openSSLHandle(int sock, char *hostname, char **p_cert)
 {
@@ -467,7 +555,15 @@ openSSLHandle(int sock, char *hostname, char **p_cert)
 #if (SSLEAY_VERSION_NUMBER >= 0x00908070) && !defined(OPENSSL_NO_TLSEXT)
     SSL_set_tlsext_host_name(handle,hostname);
 #endif				/* (SSLEAY_VERSION_NUMBER >= 0x00908070) && !defined(OPENSSL_NO_TLSEXT) */
+    SSL_SESSION *cached_session = lookup_ssl_session(hostname, 443);
+    if (cached_session) {
+	SSL_set_session(handle, cached_session);
+    }
     if (SSL_connect(handle) > 0) {
+	SSL_SESSION *new_session = SSL_get1_session(handle);
+	if (new_session) {
+	    store_ssl_session(hostname, 443, new_session);
+	}
 	Str serv_cert = ssl_get_certificate(handle, hostname);
 	if (serv_cert) {
 	    *p_cert = serv_cert->ptr;
@@ -477,6 +573,7 @@ openSSLHandle(int sock, char *hostname, char **p_cert)
 	SSL_free(handle);
 	return NULL;
     }
+    invalidate_ssl_session(hostname, 443);
   eend:
     close(sock);
     if (handle)
@@ -487,6 +584,7 @@ openSSLHandle(int sock, char *hostname, char **p_cert)
 		      ERR_error_string(ERR_get_error(), NULL))->ptr, FALSE);
     return NULL;
 }
+#endif
 
 static void
 SSL_write_from_file(SSL * ssl, char *file)
@@ -540,6 +638,7 @@ baseURL(Buffer *buf)
 }
 
 #include <netinet/tcp.h>
+#include <pthread.h>
 
 typedef struct {
     char host[128];
@@ -552,9 +651,10 @@ typedef struct {
     time_t expire;
 } FastDnsEntry;
 
-#define DNS_CACHE_MAX 64
+#define DNS_CACHE_MAX 128
 static FastDnsEntry fast_dns_cache[DNS_CACHE_MAX];
 static int fast_dns_count = 0;
+static pthread_mutex_t fast_dns_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int
 lookup_dns_cache(const char *host, int port, FastDnsEntry *out)
@@ -562,24 +662,41 @@ lookup_dns_cache(const char *host, int port, FastDnsEntry *out)
     int i;
     time_t now = time(NULL);
     if (!host) return 0;
+    pthread_mutex_lock(&fast_dns_mutex);
     for (i = 0; i < fast_dns_count; i++) {
 	if (fast_dns_cache[i].port == port &&
 	    strcmp(fast_dns_cache[i].host, host) == 0) {
 	    if (now < fast_dns_cache[i].expire) {
 		*out = fast_dns_cache[i];
+		pthread_mutex_unlock(&fast_dns_mutex);
 		return 1;
 	    }
 	}
     }
+    pthread_mutex_unlock(&fast_dns_mutex);
     return 0;
 }
 
 static void
 store_dns_cache(const char *host, int port, struct addrinfo *res)
 {
-    int idx;
+    int i, idx;
     if (!host || !res || res->ai_addrlen > sizeof(struct sockaddr_storage))
 	return;
+    pthread_mutex_lock(&fast_dns_mutex);
+    for (i = 0; i < fast_dns_count; i++) {
+	if (fast_dns_cache[i].port == port &&
+	    strcmp(fast_dns_cache[i].host, host) == 0) {
+	    memcpy(&fast_dns_cache[i].addr, res->ai_addr, res->ai_addrlen);
+	    fast_dns_cache[i].addrlen = res->ai_addrlen;
+	    fast_dns_cache[i].family = res->ai_family;
+	    fast_dns_cache[i].socktype = res->ai_socktype;
+	    fast_dns_cache[i].protocol = res->ai_protocol;
+	    fast_dns_cache[i].expire = time(NULL) + 600; /* 10 min TTL */
+	    pthread_mutex_unlock(&fast_dns_mutex);
+	    return;
+	}
+    }
     if (fast_dns_count < DNS_CACHE_MAX) {
 	idx = fast_dns_count++;
     } else {
@@ -593,7 +710,52 @@ store_dns_cache(const char *host, int port, struct addrinfo *res)
     fast_dns_cache[idx].family = res->ai_family;
     fast_dns_cache[idx].socktype = res->ai_socktype;
     fast_dns_cache[idx].protocol = res->ai_protocol;
-    fast_dns_cache[idx].expire = time(NULL) + 300; /* 5 min TTL */
+    fast_dns_cache[idx].expire = time(NULL) + 600; /* 10 min TTL */
+    pthread_mutex_unlock(&fast_dns_mutex);
+}
+
+typedef struct {
+    char host[128];
+    int port;
+} DnsPrefetchArg;
+
+static void *
+dns_prefetch_worker(void *arg)
+{
+    DnsPrefetchArg *darg = (DnsPrefetchArg *)arg;
+    struct addrinfo hints, *res0 = NULL;
+    char portbuf[16];
+    if (!darg) return NULL;
+    snprintf(portbuf, sizeof(portbuf), "%d", darg->port ? darg->port : 80);
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = PF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(darg->host, portbuf, &hints, &res0) == 0 && res0) {
+	store_dns_cache(darg->host, darg->port, res0);
+	freeaddrinfo(res0);
+    }
+    free(darg);
+    return NULL;
+}
+
+void
+prefetch_dns(const char *host, int port)
+{
+    FastDnsEntry dummy;
+    pthread_t th;
+    DnsPrefetchArg *arg;
+    if (!host || *host == '\0' || is_localhost((char *)host)) return;
+    if (lookup_dns_cache(host, port, &dummy)) return; /* already cached */
+    arg = malloc(sizeof(DnsPrefetchArg));
+    if (!arg) return;
+    strncpy(arg->host, host, sizeof(arg->host) - 1);
+    arg->host[sizeof(arg->host) - 1] = '\0';
+    arg->port = port;
+    if (pthread_create(&th, NULL, dns_prefetch_worker, arg) == 0) {
+	pthread_detach(th);
+    } else {
+	free(arg);
+    }
 }
 
 static void

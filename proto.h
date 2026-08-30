@@ -553,6 +553,7 @@ extern void touch_cursor(void);
 extern void initMimeTypes(void);
 extern void free_ssl_ctx(void);
 extern ParsedURL *baseURL(Buffer *buf);
+extern void prefetch_dns(const char *host, int port);
 extern int openSocket(char *hostname, char *remoteport_name,
 		      unsigned short remoteport_num);
 extern void parseURL(char *url, ParsedURL *p_url, ParsedURL *current);
