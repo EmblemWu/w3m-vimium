@@ -4,6 +4,7 @@
 
 #include "indep.h"
 #include <stdio.h>
+#include <zlib.h>
 #ifdef USE_SSL
 #include <openssl/bio.h>
 #include <openssl/x509.h>
@@ -12,6 +13,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
+#define STREAM_BUF_SIZE 65536
+#define SSL_BUF_SIZE	32768
 
 struct stream_buffer {
     unsigned char *buf;
@@ -39,6 +43,17 @@ struct ens_handle {
     struct growbuf gb;
     int pos;
     char encoding;
+};
+
+struct zlib_handle {
+    union input_stream *is;
+    z_stream z;
+    unsigned char in_buf[STREAM_BUF_SIZE];
+    int in_pos;
+    int in_len;
+    int eof_in;
+    int z_err;
+    int initialized;
 };
 
 
@@ -89,6 +104,15 @@ struct encoded_stream {
     void (*close) ();
 };
 
+struct zlib_stream {
+    struct stream_buffer stream;
+    struct zlib_handle *handle;
+    char type;
+    char iseos;
+    int (*read) ();
+    void (*close) ();
+};
+
 union input_stream {
     struct base_stream base;
     struct file_stream file;
@@ -97,6 +121,7 @@ union input_stream {
     struct ssl_stream ssl;
 #endif				/* USE_SSL */
     struct encoded_stream ens;
+    struct zlib_stream zlib;
 };
 
 typedef struct base_stream *BaseStream;
@@ -106,6 +131,7 @@ typedef struct str_stream *StrStream;
 typedef struct ssl_stream *SSLStream;
 #endif				/* USE_SSL */
 typedef struct encoded_stream *EncodedStrStream;
+typedef struct zlib_stream *ZlibStrStream;
 
 typedef union input_stream *InputStream;
 
@@ -116,6 +142,7 @@ extern InputStream newStrStream(Str s);
 extern InputStream newSSLStream(SSL * ssl, int sock);
 #endif
 extern InputStream newEncodedStream(InputStream is, char encoding);
+extern InputStream newZlibStream(InputStream is, int is_gzip);
 extern int ISclose(InputStream stream);
 extern int ISgetc(InputStream stream);
 extern int ISundogetc(InputStream stream);
@@ -139,6 +166,7 @@ extern Str ssl_get_certificate(SSL * ssl, char *hostname);
 #define IST_STR		2
 #define IST_SSL		3
 #define IST_ENCODED	4
+#define IST_ZLIB	5
 #define IST_UNCLOSE	0x10
 
 #define IStype(stream) ((stream)->base.type)

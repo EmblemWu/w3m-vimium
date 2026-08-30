@@ -1330,8 +1330,8 @@ sync_with_option(void)
 	 */
 	AcceptLang = _("en;q=1.0");
     }
-    if (AcceptEncoding == NULL)
-	AcceptEncoding = "";
+    if (AcceptEncoding == NULL || *AcceptEncoding == '\0')
+	AcceptEncoding = "gzip, deflate";
     if (AcceptMedia == NULL || *AcceptMedia == '\0')
 	AcceptMedia = acceptableMimeTypes();
 #ifdef USE_UNICODE

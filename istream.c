@@ -35,6 +35,9 @@ static int ssl_read(struct ssl_handle *handle, char *buf, int len);
 static int ens_read(struct ens_handle *handle, char *buf, int len);
 static void ens_close(struct ens_handle *handle);
 
+static int zlib_stream_read(struct zlib_handle *handle, char *buf, int len);
+static void zlib_stream_close(struct zlib_handle *handle);
+
 static void memchop(char *p, int *len);
 
 static void
@@ -178,6 +181,43 @@ newEncodedStream(InputStream is, char encoding)
     growbuf_init_without_GC(&stream->ens.handle->gb);
     stream->ens.read = (int (*)())ens_read;
     stream->ens.close = (void (*)())ens_close;
+    return stream;
+}
+
+InputStream
+newZlibStream(InputStream is, int is_gzip)
+{
+    InputStream stream;
+    int ret;
+    int windowBits;
+
+    if (is == NULL)
+	return NULL;
+    stream = NewWithoutGC(union input_stream);
+    init_base_stream(&stream->base, STREAM_BUF_SIZE);
+    stream->zlib.type = IST_ZLIB;
+    stream->zlib.handle = NewWithoutGC(struct zlib_handle);
+    memset(stream->zlib.handle, 0, sizeof(struct zlib_handle));
+    stream->zlib.handle->is = is;
+
+    /* windowBits: 15 for deflate/zlib, 15 + 16 (31) for gzip, 15 + 32 (47) for automatic gzip/zlib header detection */
+    windowBits = 15 + 32;
+
+    ret = inflateInit2(&stream->zlib.handle->z, windowBits);
+    if (ret != Z_OK) {
+	/* Fallback to standard inflateInit if inflateInit2 fails */
+	ret = inflateInit(&stream->zlib.handle->z);
+    }
+    if (ret != Z_OK) {
+	xfree(stream->zlib.handle);
+	xfree(stream->base.stream.buf);
+	xfree(stream);
+	return is;
+    }
+
+    stream->zlib.handle->initialized = 1;
+    stream->zlib.read = (int (*)())zlib_stream_read;
+    stream->zlib.close = (void (*)())zlib_stream_close;
     return stream;
 }
 
@@ -335,6 +375,8 @@ ISfileno(InputStream stream)
 #endif
     case IST_ENCODED:
 	return ISfileno(stream->ens.handle->is);
+    case IST_ZLIB:
+	return ISfileno(stream->zlib.handle->is);
     default:
 	return -1;
     }
@@ -772,3 +814,76 @@ memchop(char *p, int *len)
     *len = q - p;
     return;
 }
+
+static void
+zlib_stream_close(struct zlib_handle *handle)
+{
+    if (handle) {
+	if (handle->initialized) {
+	    inflateEnd(&handle->z);
+	    handle->initialized = 0;
+	}
+	if (handle->is) {
+	    ISclose(handle->is);
+	    handle->is = NULL;
+	}
+	xfree(handle);
+    }
+}
+
+static int
+zlib_stream_read(struct zlib_handle *handle, char *buf, int len)
+{
+    int ret;
+
+    if (!handle || !handle->initialized || len <= 0)
+	return 0;
+
+    if (handle->z_err == Z_STREAM_END && handle->z.avail_in == 0)
+	return 0;
+
+    handle->z.next_out = (Bytef *)buf;
+    handle->z.avail_out = (uInt)len;
+
+    while (handle->z.avail_out > 0) {
+	if (handle->z.avail_in == 0 && !handle->eof_in) {
+	    int nread = ISread_n(handle->is, (char *)handle->in_buf, sizeof(handle->in_buf));
+	    if (nread > 0) {
+		handle->z.next_in = handle->in_buf;
+		handle->z.avail_in = (uInt)nread;
+	    } else {
+		handle->eof_in = 1;
+		handle->z.next_in = Z_NULL;
+		handle->z.avail_in = 0;
+	    }
+	}
+
+	if (handle->z.avail_in == 0 && handle->eof_in) {
+	    /* No more input data */
+	    break;
+	}
+
+	ret = inflate(&handle->z, Z_NO_FLUSH);
+	if (ret == Z_STREAM_END) {
+	    handle->z_err = Z_STREAM_END;
+	    break;
+	} else if (ret == Z_OK) {
+	    /* Got some decompressed output or consumed input */
+	    if (handle->z.avail_out < (uInt)len) {
+		/* Made progress */
+		break;
+	    }
+	} else if (ret == Z_BUF_ERROR) {
+	    /* Need more input */
+	    if (handle->eof_in)
+		break;
+	} else {
+	    /* Decompression error */
+	    handle->z_err = ret;
+	    break;
+	}
+    }
+
+    return (int)(len - handle->z.avail_out);
+}
+

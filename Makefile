@@ -51,7 +51,7 @@ LDFLAGS =  -L/opt/homebrew/lib
 LIBS = -framework ImageIO -framework CoreGraphics -framework CoreFoundation -framework Cocoa
 GC_LIBS = -L/opt/homebrew/lib -lgc
 EXT_LIBS = -L. -lindep  $(GC_LIBS)
-W3M_LIBS =  -L./libwc -lwc -L/opt/homebrew/Cellar/openssl@3/3.6.3/lib -lssl -lcrypto -lssl -lcrypto -ltermcap
+W3M_LIBS =  -L./libwc -lwc -L/opt/homebrew/Cellar/openssl@3/3.6.3/lib -lssl -lcrypto -lssl -lcrypto -ltermcap -lz
 WCTARGET = libwc/libwc.a
 NLSTARGET = 
 
