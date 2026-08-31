@@ -30,10 +30,23 @@ struct io_file_handle {
     void (*close) ();
 };
 
+struct basic_conn_handle {
+    int fd;
+    int scheme;
+    char host[128];
+    int port;
+    int is_reusable;
+};
+
 #ifdef USE_SSL
 struct ssl_handle {
     SSL *ssl;
     int sock;
+    int scheme;
+    char host[128];
+    int port;
+    char *ssl_cert;
+    int is_reusable;
 };
 #endif
 
@@ -182,11 +195,14 @@ typedef struct chunked_stream *ChunkedStrStream;
 typedef union input_stream *InputStream;
 
 extern InputStream newInputStream(int des);
+extern InputStream newInputStreamWithConn(int des, int scheme, const char *host, int port);
 extern InputStream newFileStream(FILE * f, void (*closep) ());
 extern InputStream newStrStream(Str s);
 #ifdef USE_SSL
 extern InputStream newSSLStream(SSL * ssl, int sock);
+extern InputStream newSSLStreamWithConn(SSL * ssl, int sock, int scheme, const char *host, int port, const char *cert);
 #endif
+extern void checkin_http_connection(int scheme, const char *host, int port, int sock, void *ssl, const char *cert, int keep_alive);
 extern InputStream newEncodedStream(InputStream is, char encoding);
 extern InputStream newZlibStream(InputStream is, int is_gzip);
 extern InputStream newBrotliStream(InputStream is);

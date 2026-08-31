@@ -19,8 +19,8 @@
 
 #define POP_CHAR(bs) ((bs)->iseos?'\0':(bs)->stream.buf[(bs)->stream.cur++])
 
-static void basic_close(int *handle);
-static int basic_read(int *handle, char *buf, int len);
+static void basic_close(struct basic_conn_handle *handle);
+static int basic_read(struct basic_conn_handle *handle, char *buf, int len);
 
 static void file_close(struct io_file_handle *handle);
 static int file_read(struct io_file_handle *handle, char *buf, int len);
@@ -103,14 +103,32 @@ init_str_stream(BaseStream base, Str s)
 InputStream
 newInputStream(int des)
 {
+    return newInputStreamWithConn(des, 0, NULL, 0);
+}
+
+InputStream
+newInputStreamWithConn(int des, int scheme, const char *host, int port)
+{
     InputStream stream;
+    struct basic_conn_handle *bh;
     if (des < 0)
 	return NULL;
     stream = NewWithoutGC(union input_stream);
     init_base_stream(&stream->base, STREAM_BUF_SIZE);
     stream->base.type = IST_BASIC;
-    stream->base.handle = NewWithoutGC(int);
-    *(int *)stream->base.handle = des;
+    bh = NewWithoutGC(struct basic_conn_handle);
+    bh->fd = des;
+    bh->scheme = scheme;
+    bh->port = port;
+    bh->is_reusable = 1;
+    if (host) {
+	strncpy(bh->host, host, sizeof(bh->host) - 1);
+	bh->host[sizeof(bh->host) - 1] = '\0';
+    }
+    else {
+	bh->host[0] = '\0';
+    }
+    stream->base.handle = bh;
     stream->base.read = (int (*)())basic_read;
     stream->base.close = (void (*)())basic_close;
     return stream;
@@ -155,15 +173,37 @@ newStrStream(Str s)
 InputStream
 newSSLStream(SSL * ssl, int sock)
 {
+    return newSSLStreamWithConn(ssl, sock, 0, NULL, 0, NULL);
+}
+
+InputStream
+newSSLStreamWithConn(SSL * ssl, int sock, int scheme, const char *host, int port, const char *cert)
+{
     InputStream stream;
+    struct ssl_handle *sh;
     if (sock < 0)
 	return NULL;
     stream = NewWithoutGC(union input_stream);
     init_base_stream(&stream->base, SSL_BUF_SIZE);
     stream->ssl.type = IST_SSL;
-    stream->ssl.handle = NewWithoutGC(struct ssl_handle);
-    stream->ssl.handle->ssl = ssl;
-    stream->ssl.handle->sock = sock;
+    sh = NewWithoutGC(struct ssl_handle);
+    sh->ssl = ssl;
+    sh->sock = sock;
+    sh->scheme = scheme;
+    sh->port = port;
+    sh->is_reusable = 1;
+    if (cert)
+	sh->ssl_cert = allocStr((char *)cert, -1);
+    else
+	sh->ssl_cert = NULL;
+    if (host) {
+	strncpy(sh->host, host, sizeof(sh->host) - 1);
+	sh->host[sizeof(sh->host) - 1] = '\0';
+    }
+    else {
+	sh->host[0] = '\0';
+    }
+    stream->ssl.handle = sh;
     stream->ssl.read = (int (*)())ssl_read;
     stream->ssl.close = (void (*)())ssl_close;
     return stream;
@@ -423,7 +463,7 @@ ISfileno(InputStream stream)
 	return -1;
     switch (IStype(stream) & ~IST_UNCLOSE) {
     case IST_BASIC:
-	return *(int *)stream->base.handle;
+	return ((struct basic_conn_handle *)stream->base.handle)->fd;
     case IST_FILE:
 	return fileno(stream->file.handle->f);
 #ifdef USE_SSL
@@ -434,6 +474,8 @@ ISfileno(InputStream stream)
 	return ISfileno(stream->ens.handle->is);
     case IST_ZLIB:
 	return ISfileno(stream->zlib.handle->is);
+    case IST_BROTLI:
+	return ISfileno(stream->brotli.handle->is);
     case IST_CHUNKED:
 	return ISfileno(stream->chunked.handle->is);
     default:
@@ -734,23 +776,31 @@ ssl_get_certificate(SSL * ssl, char *hostname)
 /* Raw level input stream functions */
 
 static void
-basic_close(int *handle)
+basic_close(struct basic_conn_handle *handle)
 {
+    if (handle) {
+	if (handle->host[0] != '\0') {
+	    checkin_http_connection(handle->scheme, handle->host, handle->port,
+				    handle->fd, NULL, NULL, handle->is_reusable);
+	}
+	else {
 #ifdef __MINGW32_VERSION
-    closesocket(*(int *)handle);
+	    closesocket(handle->fd);
 #else
-    close(*(int *)handle);
+	    close(handle->fd);
 #endif
-    xfree(handle);
+	}
+	xfree(handle);
+    }
 }
 
 static int
-basic_read(int *handle, char *buf, int len)
+basic_read(struct basic_conn_handle *handle, char *buf, int len)
 {
 #ifdef __MINGW32_VERSION
-    return recv(*(int *)handle, buf, len, 0);
+    return recv(handle->fd, buf, len, 0);
 #else
-    return read(*(int *)handle, buf, len);
+    return read(handle->fd, buf, len);
 #endif
 }
 
@@ -777,10 +827,19 @@ str_read(Str handle, char *buf, int len)
 static void
 ssl_close(struct ssl_handle *handle)
 {
-    close(handle->sock);
-    if (handle->ssl)
-	SSL_free(handle->ssl);
-    xfree(handle);
+    if (handle) {
+	if (handle->host[0] != '\0') {
+	    checkin_http_connection(handle->scheme, handle->host, handle->port,
+				    handle->sock, handle->ssl, handle->ssl_cert,
+				    handle->is_reusable);
+	}
+	else {
+	    close(handle->sock);
+	    if (handle->ssl)
+		SSL_free(handle->ssl);
+	}
+	xfree(handle);
+    }
 }
 
 static int

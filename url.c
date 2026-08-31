@@ -637,6 +637,177 @@ baseURL(Buffer *buf)
 
 #include <netinet/tcp.h>
 #include <pthread.h>
+#include <poll.h>
+
+typedef struct {
+    char host[128];
+    int port;
+    int scheme;
+    int sock;
+#ifdef USE_SSL
+    SSL *ssl;
+    char *ssl_cert;
+#endif
+    time_t expire;
+    int in_use;
+} HttpConnEntry;
+
+#define HTTP_CONN_POOL_MAX 32
+static HttpConnEntry http_conn_pool[HTTP_CONN_POOL_MAX];
+static int http_conn_pool_count = 0;
+static pthread_mutex_t http_conn_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int
+checkout_http_connection(int scheme, const char *host, int port, int *out_sock, SSL **out_ssl, char **out_cert)
+{
+    int i;
+    time_t now = time(NULL);
+    if (!host || *host == '\0')
+	return 0;
+
+    pthread_mutex_lock(&http_conn_pool_mutex);
+    for (i = 0; i < http_conn_pool_count; i++) {
+	if (http_conn_pool[i].sock >= 0 &&
+	    !http_conn_pool[i].in_use &&
+	    http_conn_pool[i].scheme == scheme &&
+	    http_conn_pool[i].port == port &&
+	    strcmp(http_conn_pool[i].host, host) == 0) {
+
+	    if (now >= http_conn_pool[i].expire) {
+		/* Expired connection */
+		close(http_conn_pool[i].sock);
+#ifdef USE_SSL
+		if (http_conn_pool[i].ssl)
+		    SSL_free(http_conn_pool[i].ssl);
+		http_conn_pool[i].ssl = NULL;
+#endif
+		http_conn_pool[i].sock = -1;
+		continue;
+	    }
+
+	    /* Liveliness probe using poll() with 0 timeout */
+	    struct pollfd pfd;
+	    pfd.fd = http_conn_pool[i].sock;
+	    pfd.events = POLLIN | POLLERR | POLLHUP | POLLNVAL;
+	    pfd.revents = 0;
+	    int ret = poll(&pfd, 1, 0);
+	    if (ret > 0) {
+		char peek_byte;
+		int n = recv(http_conn_pool[i].sock, &peek_byte, 1, MSG_PEEK | MSG_DONTWAIT);
+		if (n <= 0) {
+		    /* Peer closed or reset connection */
+		    close(http_conn_pool[i].sock);
+#ifdef USE_SSL
+		    if (http_conn_pool[i].ssl)
+			SSL_free(http_conn_pool[i].ssl);
+		    http_conn_pool[i].ssl = NULL;
+#endif
+		    http_conn_pool[i].sock = -1;
+		    continue;
+		}
+	    }
+	    else if (ret < 0) {
+		close(http_conn_pool[i].sock);
+#ifdef USE_SSL
+		if (http_conn_pool[i].ssl)
+		    SSL_free(http_conn_pool[i].ssl);
+		http_conn_pool[i].ssl = NULL;
+#endif
+		http_conn_pool[i].sock = -1;
+		continue;
+	    }
+
+	    /* Live, healthy socket found! */
+	    http_conn_pool[i].in_use = 1;
+	    *out_sock = http_conn_pool[i].sock;
+#ifdef USE_SSL
+	    if (out_ssl)
+		*out_ssl = http_conn_pool[i].ssl;
+	    if (out_cert)
+		*out_cert = http_conn_pool[i].ssl_cert;
+#endif
+	    pthread_mutex_unlock(&http_conn_pool_mutex);
+	    return 1;
+	}
+    }
+    pthread_mutex_unlock(&http_conn_pool_mutex);
+    return 0;
+}
+
+void
+checkin_http_connection(int scheme, const char *host, int port, int sock, void *ssl_ptr, const char *cert, int keep_alive)
+{
+    int i, idx = -1;
+    SSL *ssl = (SSL *)ssl_ptr;
+    if (sock < 0 || !host || *host == '\0')
+	return;
+
+    if (!keep_alive) {
+	close(sock);
+#ifdef USE_SSL
+	if (ssl)
+	    SSL_free(ssl);
+#endif
+	pthread_mutex_lock(&http_conn_pool_mutex);
+	for (i = 0; i < http_conn_pool_count; i++) {
+	    if (http_conn_pool[i].sock == sock) {
+		http_conn_pool[i].sock = -1;
+		http_conn_pool[i].in_use = 0;
+#ifdef USE_SSL
+		http_conn_pool[i].ssl = NULL;
+#endif
+		break;
+	    }
+	}
+	pthread_mutex_unlock(&http_conn_pool_mutex);
+	return;
+    }
+
+    pthread_mutex_lock(&http_conn_pool_mutex);
+    for (i = 0; i < http_conn_pool_count; i++) {
+	if (http_conn_pool[i].sock == sock) {
+	    http_conn_pool[i].in_use = 0;
+	    http_conn_pool[i].expire = time(NULL) + 30; /* 30s Keep-Alive TTL */
+	    pthread_mutex_unlock(&http_conn_pool_mutex);
+	    return;
+	}
+    }
+
+    for (i = 0; i < http_conn_pool_count; i++) {
+	if (http_conn_pool[i].sock < 0) {
+	    idx = i;
+	    break;
+	}
+    }
+    if (idx < 0) {
+	if (http_conn_pool_count < HTTP_CONN_POOL_MAX) {
+	    idx = http_conn_pool_count++;
+	}
+	else {
+	    idx = rand() % HTTP_CONN_POOL_MAX;
+	    if (http_conn_pool[idx].sock >= 0) {
+		close(http_conn_pool[idx].sock);
+#ifdef USE_SSL
+		if (http_conn_pool[idx].ssl)
+		    SSL_free(http_conn_pool[idx].ssl);
+#endif
+	    }
+	}
+    }
+
+    strncpy(http_conn_pool[idx].host, host, sizeof(http_conn_pool[idx].host) - 1);
+    http_conn_pool[idx].host[sizeof(http_conn_pool[idx].host) - 1] = '\0';
+    http_conn_pool[idx].port = port;
+    http_conn_pool[idx].scheme = scheme;
+    http_conn_pool[idx].sock = sock;
+#ifdef USE_SSL
+    http_conn_pool[idx].ssl = ssl;
+    http_conn_pool[idx].ssl_cert = cert ? allocStr((char *)cert, -1) : NULL;
+#endif
+    http_conn_pool[idx].expire = time(NULL) + 30;
+    http_conn_pool[idx].in_use = 0;
+    pthread_mutex_unlock(&http_conn_pool_mutex);
+}
 
 typedef struct {
     char host[128];
@@ -765,6 +936,7 @@ tune_socket(int sock)
     int tos = 0x10;      /* IPTOS_LOWDELAY: low packet latency for interactive HTTP */
     if (sock < 0) return;
     setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof(on));
+    setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char *)&on, sizeof(on));
     setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbuf, sizeof(rcvbuf));
     setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf, sizeof(sndbuf));
     setsockopt(sock, IPPROTO_IP, IP_TOS, (char *)&tos, sizeof(tos));
@@ -1745,10 +1917,14 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
 	    Strcat(s, Sprintf(":%d", target->port));
 	Strcat_charp(s, "\r\n");
     }
-    Strcat_charp(s, "Connection: close\r\n");
     if (target->is_nocache || NoCache) {
+	Strcat_charp(s, "Connection: close\r\n");
 	Strcat_charp(s, "Pragma: no-cache\r\n");
 	Strcat_charp(s, "Cache-control: no-cache\r\n");
+    }
+    else {
+	Strcat_charp(s, "Connection: keep-alive\r\n");
+	Strcat_charp(s, "Keep-Alive: timeout=30, max=100\r\n");
     }
     no_referer = NoSendReferer;
     no_referer_ptr = query_SCONF_NO_REFERER_FROM(current);
@@ -2143,31 +2319,53 @@ openURL(char *url, ParsedURL *pu, ParsedURL *current,
 	    }
 	}
 	else {
-	    sock = openSocket(pu->host, schemeNumToName(pu->scheme), pu->port);
-	    if (sock < 0) {
-		*status = HTST_MISSING;
-		return uf;
+	    int reused_conn = 0;
+	    if (checkout_http_connection(pu->scheme, pu->host, pu->port, (int *)&sock, &sslh, &uf.ssl_certificate)) {
+		reused_conn = 1;
+		hr->flag |= HR_FLAG_LOCAL;
+		tmp = HTTPrequest(pu, current, hr, extra_header);
+		*status = HTST_NORMAL;
 	    }
+	    else {
+		sock = openSocket(pu->host, schemeNumToName(pu->scheme), pu->port);
+		if (sock < 0) {
+		    *status = HTST_MISSING;
+		    return uf;
+		}
 #ifdef USE_SSL
-	    if (pu->scheme == SCM_HTTPS) {
-		if (!(sslh = openSSLHandle(sock, pu->host,
-					   &uf.ssl_certificate))) {
+		if (pu->scheme == SCM_HTTPS) {
+		    if (!(sslh = openSSLHandle(sock, pu->host,
+					       &uf.ssl_certificate))) {
+			*status = HTST_MISSING;
+			return uf;
+		    }
+		}
+#endif				/* USE_SSL */
+		hr->flag |= HR_FLAG_LOCAL;
+		tmp = HTTPrequest(pu, current, hr, extra_header);
+		*status = HTST_NORMAL;
+	    }
+	}
+#ifdef USE_SSL
+	if (pu->scheme == SCM_HTTPS) {
+	    int wret = -1;
+	    if (sslh)
+		wret = SSL_write(sslh, tmp->ptr, tmp->length);
+	    else
+		wret = write(sock, tmp->ptr, tmp->length);
+	    if (wret <= 0) {
+		/* Connection closed by server or failed write, retry once with fresh connection */
+		checkin_http_connection(pu->scheme, pu->host, pu->port, sock, sslh, NULL, 0);
+		sock = openSocket(pu->host, schemeNumToName(pu->scheme), pu->port);
+		if (sock >= 0 && (sslh = openSSLHandle(sock, pu->host, &uf.ssl_certificate))) {
+		    SSL_write(sslh, tmp->ptr, tmp->length);
+		}
+		else {
 		    *status = HTST_MISSING;
 		    return uf;
 		}
 	    }
-#endif				/* USE_SSL */
-	    hr->flag |= HR_FLAG_LOCAL;
-	    tmp = HTTPrequest(pu, current, hr, extra_header);
-	    *status = HTST_NORMAL;
-	}
-#ifdef USE_SSL
-	if (pu->scheme == SCM_HTTPS) {
-	    uf.stream = newSSLStream(sslh, sock);
-	    if (sslh)
-		SSL_write(sslh, tmp->ptr, tmp->length);
-	    else
-		write(sock, tmp->ptr, tmp->length);
+	    uf.stream = newSSLStreamWithConn(sslh, sock, pu->scheme, pu->host, pu->port, uf.ssl_certificate);
 	    if(w3m_reqlog){
 		FILE *ff = fopen(w3m_reqlog, "a");
 		if (ff == NULL)
@@ -2191,7 +2389,20 @@ openURL(char *url, ParsedURL *pu, ParsedURL *current,
 	else
 #endif				/* USE_SSL */
 	{
-	    write(sock, tmp->ptr, tmp->length);
+	    int wret = write(sock, tmp->ptr, tmp->length);
+	    if (wret <= 0) {
+		/* Connection closed by server, retry once with fresh connection */
+		checkin_http_connection(pu->scheme, pu->host, pu->port, sock, NULL, NULL, 0);
+		sock = openSocket(pu->host, schemeNumToName(pu->scheme), pu->port);
+		if (sock >= 0) {
+		    write(sock, tmp->ptr, tmp->length);
+		}
+		else {
+		    *status = HTST_MISSING;
+		    return uf;
+		}
+	    }
+	    uf.stream = newInputStreamWithConn(sock, pu->scheme, pu->host, pu->port);
 	    if(w3m_reqlog){
 		FILE *ff = fopen(w3m_reqlog, "a");
 		if (ff == NULL)
