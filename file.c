@@ -721,7 +721,18 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 		refresh();
 	    }
 	}
-	if (!strncasecmp(lineBuf2->ptr, "transfer-encoding:", 18)) {
+	if (!strncasecmp(lineBuf2->ptr, "connection:", 11) || !strncasecmp(lineBuf2->ptr, "proxy-connection:", 17)) {
+	    char *cp = strchr(lineBuf2->ptr, ':');
+	    if (cp) {
+		cp++;
+		while (IS_SPACE(*cp))
+		    cp++;
+		if (strcasestr(cp, "close")) {
+		    ISset_reusable(uf->stream, 0);
+		}
+	    }
+	}
+	else if (!strncasecmp(lineBuf2->ptr, "transfer-encoding:", 18)) {
 	    p = lineBuf2->ptr + 18;
 	    while (IS_SPACE(*p))
 		p++;

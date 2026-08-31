@@ -219,6 +219,7 @@ extern int ISread(InputStream stream, Str buf, int count);
 #endif
 int ISread_n(InputStream stream, char *dst, int bufsize);
 extern int ISfileno(InputStream stream);
+extern void ISset_reusable(InputStream stream, int reusable);
 extern int ISeos(InputStream stream);
 #ifdef USE_SSL
 extern void ssl_accept_this_site(char *hostname);

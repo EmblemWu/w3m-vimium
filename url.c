@@ -636,6 +636,8 @@ baseURL(Buffer *buf)
 }
 
 #include <netinet/tcp.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <pthread.h>
 #include <poll.h>
 
@@ -945,6 +947,52 @@ tune_socket(int sock)
 #endif
 }
 
+static int
+tcp_connect_with_timeout(int sock, const struct sockaddr *addr, socklen_t addrlen, int timeout_ms)
+{
+    int flags, ret, pret, err = 0;
+    socklen_t errlen = sizeof(err);
+    struct pollfd pfd;
+
+    if (sock < 0 || !addr)
+	return -1;
+
+    flags = fcntl(sock, F_GETFL, 0);
+    if (flags < 0)
+	return -1;
+    if (fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0)
+	return -1;
+
+    ret = connect(sock, addr, addrlen);
+    if (ret == 0) {
+	fcntl(sock, F_SETFL, flags);
+	return 0;
+    }
+
+    if (errno != EINPROGRESS && errno != EWOULDBLOCK) {
+	fcntl(sock, F_SETFL, flags);
+	return -1;
+    }
+
+    pfd.fd = sock;
+    pfd.events = POLLOUT | POLLERR | POLLHUP;
+    pfd.revents = 0;
+
+    pret = poll(&pfd, 1, timeout_ms > 0 ? timeout_ms : 5000);
+    if (pret <= 0) {
+	fcntl(sock, F_SETFL, flags);
+	return -1;
+    }
+
+    if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &errlen) < 0 || err != 0) {
+	fcntl(sock, F_SETFL, flags);
+	return -1;
+    }
+
+    fcntl(sock, F_SETFL, flags);
+    return 0;
+}
+
 int
 openSocket(char *const hostname,
 	   char *remoteport_name, unsigned short remoteport_num)
@@ -996,7 +1044,7 @@ openSocket(char *const hostname,
     if (lookup_dns_cache(hostname, port_num, &cached_dns)) {
 	sock = socket(cached_dns.family, cached_dns.socktype, cached_dns.protocol);
 	if (sock >= 0) {
-	    if (connect(sock, (struct sockaddr *)&cached_dns.addr, cached_dns.addrlen) == 0) {
+	    if (tcp_connect_with_timeout(sock, (struct sockaddr *)&cached_dns.addr, cached_dns.addrlen, 5000) == 0) {
 		tune_socket(sock);
 		TRAP_OFF;
 		return sock;
@@ -1042,7 +1090,7 @@ openSocket(char *const hostname,
 	    if (sock < 0) {
 		continue;
 	    }
-	    if (connect(sock, res->ai_addr, res->ai_addrlen) < 0) {
+	    if (tcp_connect_with_timeout(sock, res->ai_addr, res->ai_addrlen, 5000) < 0) {
 		close(sock);
 		sock = -1;
 		continue;
@@ -1087,8 +1135,8 @@ openSocket(char *const hostname,
 	    message(Sprintf("Connecting to %s", hostname)->ptr, 0, 0);
 	    refresh();
 	}
-	if (connect(sock, (struct sockaddr *)&hostaddr,
-		    sizeof(struct sockaddr_in)) < 0) {
+	if (tcp_connect_with_timeout(sock, (struct sockaddr *)&hostaddr,
+				     sizeof(struct sockaddr_in), 5000) < 0) {
 #ifdef SOCK_DEBUG
 	    sock_log("openSocket: connect() failed. reason: %s\n",
 		     strerror(errno));
@@ -1126,8 +1174,8 @@ openSocket(char *const hostname,
 		message(Sprintf("Connecting to %s", hostname)->ptr, 0, 0);
 		refresh();
 	    }
-	    if ((result = connect(sock, (struct sockaddr *)&hostaddr,
-				  sizeof(struct sockaddr_in))) == 0) {
+	    if ((result = tcp_connect_with_timeout(sock, (struct sockaddr *)&hostaddr,
+						   sizeof(struct sockaddr_in), 5000)) == 0) {
 		break;
 	    }
 #ifdef SOCK_DEBUG
@@ -2319,9 +2367,7 @@ openURL(char *url, ParsedURL *pu, ParsedURL *current,
 	    }
 	}
 	else {
-	    int reused_conn = 0;
 	    if (checkout_http_connection(pu->scheme, pu->host, pu->port, (int *)&sock, &sslh, &uf.ssl_certificate)) {
-		reused_conn = 1;
 		hr->flag |= HR_FLAG_LOCAL;
 		tmp = HTTPrequest(pu, current, hr, extra_header);
 		*status = HTST_NORMAL;

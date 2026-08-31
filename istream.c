@@ -456,6 +456,37 @@ ISread_n(InputStream stream, char *dst, int count)
     return len;
 }
 
+void
+ISset_reusable(InputStream stream, int reusable)
+{
+    if (stream == NULL)
+	return;
+    switch (IStype(stream) & ~IST_UNCLOSE) {
+    case IST_BASIC:
+	((struct basic_conn_handle *)stream->base.handle)->is_reusable = reusable;
+	break;
+#ifdef USE_SSL
+    case IST_SSL:
+	stream->ssl.handle->is_reusable = reusable;
+	break;
+#endif
+    case IST_ENCODED:
+	ISset_reusable(stream->ens.handle->is, reusable);
+	break;
+    case IST_ZLIB:
+	ISset_reusable(stream->zlib.handle->is, reusable);
+	break;
+    case IST_BROTLI:
+	ISset_reusable(stream->brotli.handle->is, reusable);
+	break;
+    case IST_CHUNKED:
+	ISset_reusable(stream->chunked.handle->is, reusable);
+	break;
+    default:
+	break;
+    }
+}
+
 int
 ISfileno(InputStream stream)
 {
