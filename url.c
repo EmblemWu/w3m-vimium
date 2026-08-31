@@ -1730,6 +1730,8 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
 
     if (AcceptEncoding && *AcceptEncoding)
 	Strcat_m_charp(s, "Accept-Encoding: ", AcceptEncoding, "\r\n", NULL);
+    else
+	Strcat_charp(s, "Accept-Encoding: gzip, deflate, br\r\n");
 
     if (AcceptLang && *AcceptLang)
 	Strcat_m_charp(s, "Accept-Language: ", AcceptLang, "\r\n", NULL);

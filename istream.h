@@ -5,6 +5,7 @@
 #include "indep.h"
 #include <stdio.h>
 #include <zlib.h>
+#include <brotli/decode.h>
 #ifdef USE_SSL
 #include <openssl/bio.h>
 #include <openssl/x509.h>
@@ -53,6 +54,17 @@ struct zlib_handle {
     int in_len;
     int eof_in;
     int z_err;
+    int initialized;
+};
+
+struct brotli_handle {
+    union input_stream *is;
+    BrotliDecoderState *state;
+    unsigned char in_buf[STREAM_BUF_SIZE];
+    const uint8_t *next_in;
+    size_t avail_in;
+    int eof_in;
+    int finished;
     int initialized;
 };
 
@@ -125,6 +137,15 @@ struct zlib_stream {
     void (*close) ();
 };
 
+struct brotli_stream {
+    struct stream_buffer stream;
+    struct brotli_handle *handle;
+    char type;
+    char iseos;
+    int (*read) ();
+    void (*close) ();
+};
+
 struct chunked_stream {
     struct stream_buffer stream;
     struct chunked_handle *handle;
@@ -143,6 +164,7 @@ union input_stream {
 #endif				/* USE_SSL */
     struct encoded_stream ens;
     struct zlib_stream zlib;
+    struct brotli_stream brotli;
     struct chunked_stream chunked;
 };
 
@@ -154,6 +176,7 @@ typedef struct ssl_stream *SSLStream;
 #endif				/* USE_SSL */
 typedef struct encoded_stream *EncodedStrStream;
 typedef struct zlib_stream *ZlibStrStream;
+typedef struct brotli_stream *BrotliStrStream;
 typedef struct chunked_stream *ChunkedStrStream;
 
 typedef union input_stream *InputStream;
@@ -166,6 +189,7 @@ extern InputStream newSSLStream(SSL * ssl, int sock);
 #endif
 extern InputStream newEncodedStream(InputStream is, char encoding);
 extern InputStream newZlibStream(InputStream is, int is_gzip);
+extern InputStream newBrotliStream(InputStream is);
 extern InputStream newChunkedStream(InputStream is);
 extern int ISclose(InputStream stream);
 extern int ISgetc(InputStream stream);
@@ -192,6 +216,7 @@ extern Str ssl_get_certificate(SSL * ssl, char *hostname);
 #define IST_ENCODED	4
 #define IST_ZLIB	5
 #define IST_CHUNKED	6
+#define IST_BROTLI	7
 #define IST_UNCLOSE	0x10
 
 #define IStype(stream) ((stream)->base.type)

@@ -38,6 +38,9 @@ static void ens_close(struct ens_handle *handle);
 static int zlib_stream_read(struct zlib_handle *handle, char *buf, int len);
 static void zlib_stream_close(struct zlib_handle *handle);
 
+static int brotli_stream_read(struct brotli_handle *handle, char *buf, int len);
+static void brotli_stream_close(struct brotli_handle *handle);
+
 static int chunked_stream_read(struct chunked_handle *handle, char *buf, int len);
 static void chunked_stream_close(struct chunked_handle *handle);
 
@@ -221,6 +224,37 @@ newZlibStream(InputStream is, int is_gzip)
     stream->zlib.handle->initialized = 1;
     stream->zlib.read = (int (*)())zlib_stream_read;
     stream->zlib.close = (void (*)())zlib_stream_close;
+    return stream;
+}
+
+InputStream
+newBrotliStream(InputStream is)
+{
+    InputStream stream;
+    BrotliDecoderState *state;
+
+    if (is == NULL)
+	return NULL;
+
+    state = BrotliDecoderCreateInstance(NULL, NULL, NULL);
+    if (!state)
+	return is;
+
+    stream = NewWithoutGC(union input_stream);
+    init_base_stream(&stream->base, STREAM_BUF_SIZE);
+    stream->brotli.type = IST_BROTLI;
+    stream->brotli.handle = NewWithoutGC(struct brotli_handle);
+    memset(stream->brotli.handle, 0, sizeof(struct brotli_handle));
+    stream->brotli.handle->is = is;
+    stream->brotli.handle->state = state;
+    stream->brotli.handle->next_in = stream->brotli.handle->in_buf;
+    stream->brotli.handle->avail_in = 0;
+    stream->brotli.handle->eof_in = 0;
+    stream->brotli.handle->finished = 0;
+    stream->brotli.handle->initialized = 1;
+
+    stream->brotli.read = (int (*)())brotli_stream_read;
+    stream->brotli.close = (void (*)())brotli_stream_close;
     return stream;
 }
 
@@ -910,6 +944,84 @@ zlib_stream_read(struct zlib_handle *handle, char *buf, int len)
     }
 
     return (int)(len - handle->z.avail_out);
+}
+
+static void
+brotli_stream_close(struct brotli_handle *handle)
+{
+    if (handle) {
+	if (handle->state) {
+	    BrotliDecoderDestroyInstance(handle->state);
+	    handle->state = NULL;
+	}
+	if (handle->is) {
+	    ISclose(handle->is);
+	    handle->is = NULL;
+	}
+	xfree(handle);
+    }
+}
+
+static int
+brotli_stream_read(struct brotli_handle *handle, char *buf, int len)
+{
+    size_t avail_out;
+    uint8_t *next_out;
+    BrotliDecoderResult res;
+
+    if (!handle || !handle->initialized || !handle->state || len <= 0)
+	return 0;
+
+    if (handle->finished)
+	return 0;
+
+    next_out = (uint8_t *)buf;
+    avail_out = (size_t)len;
+
+    while (avail_out > 0) {
+	if (handle->avail_in == 0 && !handle->eof_in) {
+	    int nread = ISread_n(handle->is, (char *)handle->in_buf, sizeof(handle->in_buf));
+	    if (nread > 0) {
+		handle->next_in = handle->in_buf;
+		handle->avail_in = (size_t)nread;
+	    } else {
+		handle->eof_in = 1;
+		handle->next_in = NULL;
+		handle->avail_in = 0;
+	    }
+	}
+
+	res = BrotliDecoderDecompressStream(
+	    handle->state,
+	    &handle->avail_in,
+	    &handle->next_in,
+	    &avail_out,
+	    &next_out,
+	    NULL
+	);
+
+	if (res == BROTLI_DECODER_RESULT_SUCCESS) {
+	    handle->finished = 1;
+	    break;
+	} else if (res == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT) {
+	    /* Output buffer full, return what we have so far */
+	    break;
+	} else if (res == BROTLI_DECODER_RESULT_NEEDS_MORE_INPUT) {
+	    if (handle->eof_in) {
+		/* Stream ended prematurely */
+		handle->finished = 1;
+		break;
+	    }
+	    /* Loop back to read more from underlying stream */
+	    continue;
+	} else {
+	    /* BROTLI_DECODER_RESULT_ERROR */
+	    handle->finished = 1;
+	    break;
+	}
+    }
+
+    return (int)(len - (int)avail_out);
 }
 
 static void

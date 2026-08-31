@@ -8775,11 +8775,16 @@ uncompress_stream(URLFile *uf, char **src)
 	uf->encoding = ENC_7BIT;
     }
 
-    /* Fast path: Native in-memory streaming zlib decompression (0 disk I/O, 0 fork) */
+    /* Fast path: Native in-memory streaming zlib/brotli decompression (0 disk I/O, 0 fork) */
     if (uf->compression == CMP_COMPRESS || uf->compression == CMP_DEFLATE) {
 	int comp_type = uf->compression;
 	uf->compression = CMP_NOCOMPRESS;
 	uf->stream = newZlibStream(uf->stream, comp_type);
+	return;
+    }
+    if (uf->compression == CMP_BROTLI) {
+	uf->compression = CMP_NOCOMPRESS;
+	uf->stream = newBrotliStream(uf->stream);
 	return;
     }
 
