@@ -48,6 +48,24 @@ static void addnewline(Buffer *buf, char *line, Lineprop *prop,
 		       Linecolor *color, int pos, int width, int nlines);
 static void addLink(Buffer *buf, struct parsed_tag *tag);
 
+static void
+check_and_prefetch_url_dns(const char *url)
+{
+    if (url && (strncasecmp(url, "http://", 7) == 0 ||
+		strncasecmp(url, "https://", 8) == 0 ||
+		(url[0] == '/' && url[1] == '/'))) {
+	ParsedURL pu;
+	char *tmp_url = (char *)url;
+	if (url[0] == '/' && url[1] == '/') {
+	    tmp_url = Sprintf("http:%s", url)->ptr;
+	}
+	parseURL(tmp_url, &pu, NULL);
+	if (pu.host && *pu.host) {
+	    prefetch_dns(pu.host, pu.port ? pu.port : (pu.scheme == SCM_HTTPS ? 443 : 80));
+	}
+    }
+}
+
 static JMP_BUF AbortLoading;
 
 static struct table *tables[MAX_TABLE];
@@ -4283,6 +4301,8 @@ process_form_int(struct parsed_tag *tag, int fid)
     parsedtag_get_value(tag, ATTR_METHOD, &p);
     q = "!CURRENT_URL!";
     parsedtag_get_value(tag, ATTR_ACTION, &q);
+    if (q && strcmp(q, "!CURRENT_URL!") != 0)
+	check_and_prefetch_url_dns(q);
     q = url_encode(remove_space(q), cur_baseURL, cur_document_charset);
     r = NULL;
 #ifdef USE_M17N
@@ -4930,6 +4950,7 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	parsedtag_get_value(tag, ATTR_SRC, &q);
 	parsedtag_get_value(tag, ATTR_NAME, &r);
 	if (q) {
+	    check_and_prefetch_url_dns(q);
 	    q = html_quote(q);
 	    push_tag(obuf, Sprintf("<a hseq=\"%d\" href=\"%s\">",
 				   cur_hseq++, q)->ptr, HTML_A);
@@ -5053,6 +5074,8 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
     case HTML_SCRIPT:
 	obuf->flag |= RB_SCRIPT;
 	obuf->end_tag = HTML_N_SCRIPT;
+	if (parsedtag_get_value(tag, ATTR_SRC, &p))
+	    check_and_prefetch_url_dns(p);
 	return 1;
     case HTML_STYLE:
 	obuf->flag |= RB_STYLE;
@@ -5082,13 +5105,7 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 
 	if (parsedtag_get_value(tag, ATTR_HREF, &p)) {
 	    obuf->anchor.url = Strnew_charp(p)->ptr;
-	    if (p && (strncasecmp(p, "http://", 7) == 0 || strncasecmp(p, "https://", 8) == 0)) {
-		ParsedURL pu;
-		parseURL(p, &pu, NULL);
-		if (pu.host && *pu.host) {
-		    prefetch_dns(pu.host, pu.port ? pu.port : (pu.scheme == SCM_HTTPS ? 443 : 80));
-		}
-	    }
+	    check_and_prefetch_url_dns(p);
 	}
 	if (parsedtag_get_value(tag, ATTR_TARGET, &p))
 	    obuf->anchor.target = Strnew_charp(p)->ptr;
@@ -5114,6 +5131,8 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
     case HTML_IMG:
 	if (parsedtag_exists(tag, ATTR_USEMAP))
 	    HTML5_CLOSE_A;
+	if (parsedtag_get_value(tag, ATTR_SRC, &p))
+	    check_and_prefetch_url_dns(p);
 	tmp = process_img(tag, h_env->limit);
 	if (need_number) {
 	    tmp = Strnew_m_charp(getLinkNumberStr(-1)->ptr, tmp->ptr, NULL);
@@ -5122,8 +5141,10 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	HTMLlineproc1(tmp->ptr, h_env);
 	return 1;
     case HTML_IMG_ALT:
-	if (parsedtag_get_value(tag, ATTR_SRC, &p))
+	if (parsedtag_get_value(tag, ATTR_SRC, &p)) {
 	    obuf->img_alt = Strnew_charp(p);
+	    check_and_prefetch_url_dns(p);
+	}
 #ifdef USE_IMAGE
 	i = 0;
 	if (parsedtag_get_value(tag, ATTR_TOP_MARGIN, &i)) {
@@ -6370,9 +6391,11 @@ addLink(Buffer *buf, struct parsed_tag *tag)
     LinkList *l;
 
     parsedtag_get_value(tag, ATTR_HREF, &href);
-    if (href)
+    if (href) {
+	check_and_prefetch_url_dns(href);
 	href = url_encode(remove_space(href), baseURL(buf),
 			  buf->document_charset);
+    }
     parsedtag_get_value(tag, ATTR_TITLE, &title);
     parsedtag_get_value(tag, ATTR_TYPE, &ctype);
     parsedtag_get_value(tag, ATTR_REL, &rel);

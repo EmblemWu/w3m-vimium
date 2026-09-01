@@ -16,7 +16,7 @@
 #include <fcntl.h>
 
 #define STREAM_BUF_SIZE 65536
-#define SSL_BUF_SIZE	32768
+#define SSL_BUF_SIZE	65536
 
 struct stream_buffer {
     unsigned char *buf;

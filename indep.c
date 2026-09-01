@@ -425,7 +425,6 @@ getescapechar(char **str)
 {
     int dummy = -1;
     char *p = *str, *q;
-    int strict_entity = TRUE;
 
     if (*p == '&')
 	p++;
@@ -463,26 +462,102 @@ getescapechar(char **str)
     }
     q = p;
     for (p++; IS_ALNUM(*p); p++) ;
-    q = allocStr(q, p - q);
-    if (strcasestr("lt gt amp quot apos nbsp", q) && *p != '=') {
-	/* a character entity MUST be terminated with ";". However,
-	 * there's MANY web pages which uses &lt , &gt or something
-	 * like them as &lt;, &gt;, etc. Therefore, we treat the most
-	 * popular character entities (including &#xxxx;) without
-	 * the last ";" as character entities. If the trailing character
-	 * is "=", it must be a part of query in an URL. So &lt=, &gt=, etc.
-	 * are not regarded as character entities.
-	 */
-	strict_entity = FALSE;
+    int len = (int)(p - q);
+
+    /* Fast-path zero-allocation lookup for frequent HTML entities */
+    int fast_val = -1;
+    int is_common_loose = 0;
+
+    switch (len) {
+    case 2:
+	if ((q[0] == 'l' || q[0] == 'L') && (q[1] == 't' || q[1] == 'T')) {
+	    fast_val = 0x3c; /* < */
+	    is_common_loose = 1;
+	}
+	else if ((q[0] == 'g' || q[0] == 'G') && (q[1] == 't' || q[1] == 'T')) {
+	    fast_val = 0x3e; /* > */
+	    is_common_loose = 1;
+	}
+	break;
+    case 3:
+	if (!strncasecmp(q, "amp", 3)) {
+	    fast_val = 0x26; /* & */
+	    is_common_loose = 1;
+	}
+	break;
+    case 4:
+	if (!strncasecmp(q, "quot", 4)) {
+	    fast_val = 0x22; /* " */
+	    is_common_loose = 1;
+	}
+	else if (!strncasecmp(q, "apos", 4)) {
+	    fast_val = 0x27; /* ' */
+	    is_common_loose = 1;
+	}
+	else if (!strncasecmp(q, "nbsp", 4)) {
+	    fast_val = 0xa0; /* nbsp */
+	    is_common_loose = 1;
+	}
+	else if (!strncasecmp(q, "copy", 4)) {
+	    fast_val = 0xa9; /* copyright */
+	}
+	break;
+    case 5:
+	if (!strncasecmp(q, "laquo", 5))
+	    fast_val = 0xab;
+	else if (!strncasecmp(q, "raquo", 5))
+	    fast_val = 0xbb;
+	else if (!strncasecmp(q, "trade", 5))
+	    fast_val = 0x2122;
+	else if (!strncasecmp(q, "times", 5))
+	    fast_val = 0xd7;
+	break;
+    case 6:
+	if (!strncasecmp(q, "hellip", 6))
+	    fast_val = 0x2026;
+	else if (!strncasecmp(q, "mdash", 6))
+	    fast_val = 0x2014;
+	else if (!strncasecmp(q, "ndash", 6))
+	    fast_val = 0x2013;
+	else if (!strncasecmp(q, "divide", 6))
+	    fast_val = 0xf7;
+	break;
+    default:
+	break;
     }
-    if (*p == ';')
-	p++;
-    else if (strict_entity) {
+
+    if (fast_val >= 0) {
+	if (*p == ';') {
+	    p++;
+	    *str = p;
+	    return fast_val;
+	}
+	if (is_common_loose && *p != '=') {
+	    *str = p;
+	    return fast_val;
+	}
 	*str = p;
 	return -1;
     }
-    *str = p;
-    return getHash_si(&entity, q, -1);
+
+    /* Fallback hash lookup with stack buffer (zero GC heap allocation) */
+    char ent_buf[64];
+    if (len >= (int)sizeof(ent_buf)) {
+	*str = p;
+	return -1;
+    }
+    memcpy(ent_buf, q, len);
+    ent_buf[len] = '\0';
+
+    if (*p == ';') {
+	p++;
+	*str = p;
+	return getHash_si(&entity, ent_buf, -1);
+    }
+    else {
+	*str = p;
+	return -1;
+    }
 }
 
 char *

@@ -13,7 +13,7 @@
 #define	uchar		unsigned char
 
 #define STREAM_BUF_SIZE 65536
-#define SSL_BUF_SIZE	32768
+#define SSL_BUF_SIZE	65536
 
 #define MUST_BE_UPDATED(bs) ((bs)->stream.cur==(bs)->stream.next)
 
@@ -973,6 +973,8 @@ zlib_stream_close(struct zlib_handle *handle)
 	    handle->initialized = 0;
 	}
 	if (handle->is) {
+	    if (handle->z_err != Z_STREAM_END)
+		ISset_reusable(handle->is, 0);
 	    ISclose(handle->is);
 	    handle->is = NULL;
 	}
@@ -1045,6 +1047,8 @@ brotli_stream_close(struct brotli_handle *handle)
 	    handle->state = NULL;
 	}
 	if (handle->is) {
+	    if (!handle->finished)
+		ISset_reusable(handle->is, 0);
 	    ISclose(handle->is);
 	    handle->is = NULL;
 	}
@@ -1119,6 +1123,8 @@ chunked_stream_close(struct chunked_handle *handle)
 {
     if (handle) {
 	if (handle->is) {
+	    if (handle->state != CHUNK_STATE_EOS)
+		ISset_reusable(handle->is, 0);
 	    ISclose(handle->is);
 	    handle->is = NULL;
 	}
