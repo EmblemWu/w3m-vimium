@@ -670,16 +670,20 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 				   mime_charset ? mime_charset
 				   : DocumentCharset);
 	    /* separated with line and stored */
-	    tmp = Strnew_size(lineBuf2->length);
-	    for (p = lineBuf2->ptr; *p; p = q) {
-		for (q = p; *q && *q != '\r' && *q != '\n'; q++) ;
-		lineBuf2 = checkType(Strnew_charp_n(p, q - p), &propBuffer,
-				     NULL);
-		Strcat(tmp, lineBuf2);
-		if (thru)
+	    if (thru) {
+		tmp = Strnew_size(lineBuf2->length);
+		for (p = lineBuf2->ptr; *p; p = q) {
+		    for (q = p; *q && *q != '\r' && *q != '\n'; q++) ;
+		    lineBuf2 = checkType(Strnew_charp_n(p, q - p), &propBuffer,
+					 NULL);
+		    Strcat(tmp, lineBuf2);
 		    addnewline(newBuf, lineBuf2->ptr, propBuffer, NULL,
 			       lineBuf2->length, FOLD_BUFFER_WIDTH, -1);
-		for (; *q && (*q == '\r' || *q == '\n'); q++) ;
+		    for (; *q && (*q == '\r' || *q == '\n'); q++) ;
+		}
+	    }
+	    else {
+		tmp = lineBuf2;
 	    }
 #ifdef USE_IMAGE
 	    if (thru && activeImage && displayImage) {
@@ -1922,6 +1926,7 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 	    /* 307: Temporary Redirect (HTTP/1.1) */
 	    tpath = url_encode(p, NULL, 0);
 	    request = NULL;
+	    ISset_reusable(f.stream, 0);
 	    UFclose(&f);
 	    current = New(ParsedURL);
 	    copyParsedURL(current, &pu);
@@ -2104,6 +2109,7 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 	    /* document moved */
 	    tpath = url_encode(remove_space(p), NULL, 0);
 	    request = NULL;
+	    ISset_reusable(f.stream, 0);
 	    UFclose(&f);
 	    add_auth_cookie_flag = 0;
 	    current = New(ParsedURL);

@@ -820,6 +820,7 @@ typedef struct {
     int socktype;
     int protocol;
     time_t expire;
+    int in_flight;
 } FastDnsEntry;
 
 #define DNS_CACHE_MAX 128
@@ -864,6 +865,7 @@ store_dns_cache(const char *host, int port, struct addrinfo *res)
 	    fast_dns_cache[i].socktype = res->ai_socktype;
 	    fast_dns_cache[i].protocol = res->ai_protocol;
 	    fast_dns_cache[i].expire = time(NULL) + 600; /* 10 min TTL */
+	    fast_dns_cache[i].in_flight = 0;
 	    pthread_mutex_unlock(&fast_dns_mutex);
 	    return;
 	}
@@ -882,6 +884,7 @@ store_dns_cache(const char *host, int port, struct addrinfo *res)
     fast_dns_cache[idx].socktype = res->ai_socktype;
     fast_dns_cache[idx].protocol = res->ai_protocol;
     fast_dns_cache[idx].expire = time(NULL) + 600; /* 10 min TTL */
+    fast_dns_cache[idx].in_flight = 0;
     pthread_mutex_unlock(&fast_dns_mutex);
 }
 
@@ -904,6 +907,17 @@ dns_prefetch_worker(void *arg)
     if (getaddrinfo(darg->host, portbuf, &hints, &res0) == 0 && res0) {
 	store_dns_cache(darg->host, darg->port, res0);
 	freeaddrinfo(res0);
+    } else {
+	int i;
+	pthread_mutex_lock(&fast_dns_mutex);
+	for (i = 0; i < fast_dns_count; i++) {
+	    if (fast_dns_cache[i].port == darg->port &&
+		strcmp(fast_dns_cache[i].host, darg->host) == 0) {
+		fast_dns_cache[i].in_flight = 0;
+		break;
+	    }
+	}
+	pthread_mutex_unlock(&fast_dns_mutex);
     }
     free(darg);
     return NULL;
@@ -912,19 +926,58 @@ dns_prefetch_worker(void *arg)
 void
 prefetch_dns(const char *host, int port)
 {
-    FastDnsEntry dummy;
     pthread_t th;
     DnsPrefetchArg *arg;
+    int i, pport, idx = -1;
+    time_t now;
+
     if (!host || *host == '\0' || is_localhost((char *)host)) return;
-    if (lookup_dns_cache(host, port, &dummy)) return; /* already cached */
+    pport = port ? port : 80;
+    now = time(NULL);
+
+    pthread_mutex_lock(&fast_dns_mutex);
+    for (i = 0; i < fast_dns_count; i++) {
+	if (fast_dns_cache[i].port == pport &&
+	    strcmp(fast_dns_cache[i].host, host) == 0) {
+	    if (fast_dns_cache[i].in_flight || now < fast_dns_cache[i].expire) {
+		pthread_mutex_unlock(&fast_dns_mutex);
+		return; /* already cached or in-flight */
+	    }
+	    idx = i;
+	    break;
+	}
+    }
+
+    if (idx < 0) {
+	if (fast_dns_count < DNS_CACHE_MAX) {
+	    idx = fast_dns_count++;
+	} else {
+	    idx = rand() % DNS_CACHE_MAX;
+	}
+	strncpy(fast_dns_cache[idx].host, host, sizeof(fast_dns_cache[idx].host) - 1);
+	fast_dns_cache[idx].host[sizeof(fast_dns_cache[idx].host) - 1] = '\0';
+	fast_dns_cache[idx].port = pport;
+	fast_dns_cache[idx].expire = 0;
+    }
+    fast_dns_cache[idx].in_flight = 1;
+    pthread_mutex_unlock(&fast_dns_mutex);
+
     arg = malloc(sizeof(DnsPrefetchArg));
-    if (!arg) return;
+    if (!arg) {
+	pthread_mutex_lock(&fast_dns_mutex);
+	fast_dns_cache[idx].in_flight = 0;
+	pthread_mutex_unlock(&fast_dns_mutex);
+	return;
+    }
     strncpy(arg->host, host, sizeof(arg->host) - 1);
     arg->host[sizeof(arg->host) - 1] = '\0';
-    arg->port = port;
+    arg->port = pport;
     if (pthread_create(&th, NULL, dns_prefetch_worker, arg) == 0) {
 	pthread_detach(th);
     } else {
+	pthread_mutex_lock(&fast_dns_mutex);
+	fast_dns_cache[idx].in_flight = 0;
+	pthread_mutex_unlock(&fast_dns_mutex);
 	free(arg);
     }
 }

@@ -16,19 +16,21 @@ static int toLength(char *, int *);
 static int toAlign(char *, int *);
 static int toVAlign(char *, int *);
 
+typedef int (*ToValFunc)(char *, void *);
+
 /* *INDENT-OFF* */
-static int (*toValFunc[]) () = {
-    noConv,		/* VTYPE_NONE    */
-    noConv,		/* VTYPE_STR     */
-    toNumber,		/* VTYPE_NUMBER  */
-    toLength,		/* VTYPE_LENGTH  */
-    toAlign,		/* VTYPE_ALIGN   */
-    toVAlign,		/* VTYPE_VALIGN  */
-    noConv,		/* VTYPE_ACTION  */
-    noConv,		/* VTYPE_ENCTYPE */
-    noConv,		/* VTYPE_METHOD  */
-    noConv,		/* VTYPE_MLENGTH */
-    noConv,		/* VTYPE_TYPE    */
+static ToValFunc toValFunc[] = {
+    (ToValFunc)noConv,		/* VTYPE_NONE    */
+    (ToValFunc)noConv,		/* VTYPE_STR     */
+    (ToValFunc)toNumber,	/* VTYPE_NUMBER  */
+    (ToValFunc)toLength,	/* VTYPE_LENGTH  */
+    (ToValFunc)toAlign,		/* VTYPE_ALIGN   */
+    (ToValFunc)toVAlign,	/* VTYPE_VALIGN  */
+    (ToValFunc)noConv,		/* VTYPE_ACTION  */
+    (ToValFunc)noConv,		/* VTYPE_ENCTYPE */
+    (ToValFunc)noConv,		/* VTYPE_METHOD  */
+    (ToValFunc)noConv,		/* VTYPE_MLENGTH */
+    (ToValFunc)noConv,		/* VTYPE_TYPE    */
 };
 /* *INDENT-ON* */
 
@@ -110,6 +112,22 @@ toVAlign(char *oval, int *valign)
 extern Hash_si tagtable;
 #define MAX_TAG_LEN 64
 
+static unsigned char static_tag_map[MAX_HTMLTAG][MAX_TAGATTR];
+static int static_tag_map_initialized = 0;
+
+static void
+init_static_tag_map(void)
+{
+    int t, i;
+    for (t = 0; t < MAX_HTMLTAG; t++) {
+	memset(static_tag_map[t], MAX_TAGATTR, MAX_TAGATTR);
+	for (i = 0; i < TagMAP[t].max_attribute; i++) {
+	    static_tag_map[t][TagMAP[t].accept_attribute[i]] = (unsigned char)i;
+	}
+    }
+    static_tag_map_initialized = 1;
+}
+
 struct parsed_tag *
 parse_tag(char **s, int internal)
 {
@@ -118,6 +136,9 @@ parse_tag(char **s, int internal)
     char tagname[MAX_TAG_LEN], attrname[MAX_TAG_LEN];
     char *p, *q;
     int i, attr_id = 0, nattr;
+
+    if (!static_tag_map_initialized)
+	init_static_tag_map();
 
     /* Parse tag name */
     tagname[0] = '\0';
@@ -146,21 +167,20 @@ parse_tag(char **s, int internal)
     tag = New(struct parsed_tag);
     bzero(tag, sizeof(struct parsed_tag));
     tag->tagid = tag_id;
+    tag->need_reconstruct = FALSE;
+    tag->map = static_tag_map[tag_id];
 
-    if ((nattr = TagMAP[tag_id].max_attribute) > 0) {
-	tag->attrid = NewAtom_N(unsigned char, nattr);
-	tag->value = New_N(char *, nattr);
-	tag->map = NewAtom_N(unsigned char, MAX_TAGATTR);
-	memset(tag->map, MAX_TAGATTR, MAX_TAGATTR);
+    nattr = TagMAP[tag_id].max_attribute;
+    if (nattr > 0) {
+	if (nattr > MAX_TAG_ATTR_INLINE)
+	    nattr = MAX_TAG_ATTR_INLINE;
 	memset(tag->attrid, ATTR_UNKNOWN, nattr);
-	for (i = 0; i < nattr; i++)
-	    tag->map[TagMAP[tag_id].accept_attribute[i]] = i;
     }
 
     /* Parse tag arguments */
     SKIP_BLANKS(q);
     while (1) {
-       Str value = NULL, value_tmp = NULL;
+	char *val_str = NULL;
 	if (*q == '>' || *q == '\0')
 	    goto done_parse_tag;
 	p = attrname;
@@ -175,42 +195,54 @@ parse_tag(char **s, int internal)
 	SKIP_BLANKS(q);
 	if (*q == '=') {
 	    /* get value */
-	    value_tmp = Strnew();
 	    q++;
 	    SKIP_BLANKS(q);
-	    if (*q == '"') {
-		q++;
-		while (*q && *q != '"') {
-		    Strcat_char(value_tmp, *q);
-		    if (!tag->need_reconstruct && is_html_quote(*q))
-			tag->need_reconstruct = TRUE;
+	    char quote_ch = 0;
+	    if (*q == '"' || *q == '\'') {
+		quote_ch = *q++;
+	    }
+	    char *val_start = q;
+	    int has_newline = 0;
+	    int has_quote = 0;
+
+	    if (quote_ch) {
+		while (*q && *q != quote_ch) {
+		    if (*q == '\n') has_newline = 1;
+		    if (is_html_quote(*q)) has_quote = 1;
 		    q++;
 		}
-		if (*q == '"')
-		    q++;
-	    }
-	    else if (*q == '\'') {
-		q++;
-		while (*q && *q != '\'') {
-		    Strcat_char(value_tmp, *q);
-		    if (!tag->need_reconstruct && is_html_quote(*q))
-			tag->need_reconstruct = TRUE;
-		    q++;
-		}
-		if (*q == '\'')
-		    q++;
-	    }
-	    else if (*q) {
+	    } else {
 		while (*q && !IS_SPACE(*q) && *q != '>') {
-                   Strcat_char(value_tmp, *q);
-		    if (!tag->need_reconstruct && is_html_quote(*q))
-			tag->need_reconstruct = TRUE;
+		    if (*q == '\n') has_newline = 1;
+		    if (is_html_quote(*q)) has_quote = 1;
 		    q++;
 		}
+	    }
+	    int val_len = (int)(q - val_start);
+	    if (quote_ch && *q == quote_ch)
+		q++;
+
+	    if (has_quote && !tag->need_reconstruct)
+		tag->need_reconstruct = TRUE;
+
+	    if (!has_newline) {
+		val_str = allocStr(val_start, val_len);
+	    } else {
+		char *dst = NewAtom_N(char, val_len + 1);
+		char *src = val_start;
+		char *dp = dst;
+		int k;
+		for (k = 0; k < val_len; k++, src++) {
+		    if (*src != '\n')
+			*dp++ = *src;
+		}
+		*dp = '\0';
+		val_str = dst;
 	    }
 	}
+
 	for (i = 0; i < nattr; i++) {
-	    if ((tag)->attrid[i] == ATTR_UNKNOWN &&
+	    if (tag->attrid[i] == ATTR_UNKNOWN &&
 		strcmp(AttrMAP[TagMAP[tag_id].accept_attribute[i]].name,
 		       attrname) == 0) {
 		attr_id = TagMAP[tag_id].accept_attribute[i];
@@ -218,40 +250,17 @@ parse_tag(char **s, int internal)
 	    }
 	}
 
-       if (value_tmp) {
-         int j, hidden=FALSE;
-         for (j=0; j<i; j++) {
-           if (tag->attrid[j] == ATTR_TYPE &&
-               tag->value[j] &&
-               strcmp("hidden",tag->value[j]) == 0) {
-             hidden=TRUE;
-             break;
-           }
-         }
-         if ((tag_id == HTML_INPUT || tag_id == HTML_INPUT_ALT) &&
-             attr_id == ATTR_VALUE && hidden) {
-           value = value_tmp;
-         } else {
-           char *x;
-           value = Strnew();
-           for (x = value_tmp->ptr; *x; x++) {
-             if (*x != '\n')
-               Strcat_char(value, *x);
-           }
-         }
-       }
-
 	if (i != nattr) {
 	    if (!internal &&
 		((AttrMAP[attr_id].flag & AFLG_INT) ||
-		 (value && AttrMAP[attr_id].vtype == VTYPE_METHOD &&
-		  !strcasecmp(value->ptr, "internal")))) {
+		 (val_str && AttrMAP[attr_id].vtype == VTYPE_METHOD &&
+		  !strcasecmp(val_str, "internal")))) {
 		tag->need_reconstruct = TRUE;
 		continue;
 	    }
 	    tag->attrid[i] = attr_id;
-	    if (value)
-		tag->value[i] = html_unquote(value->ptr);
+	    if (val_str)
+		tag->value[i] = html_unquote(val_str);
 	    else
 		tag->value[i] = NULL;
 	}
@@ -279,6 +288,8 @@ parsedtag_set_value(struct parsed_tag *tag, int id, char *value)
 	return 0;
 
     i = tag->map[id];
+    if (i >= MAX_TAG_ATTR_INLINE)
+	return 0;
     tag->attrid[i] = id;
     if (value)
 	tag->value[i] = allocStr(value, -1);
@@ -292,7 +303,10 @@ int
 parsedtag_get_value(struct parsed_tag *tag, int id, void *value)
 {
     int i;
-    if (!parsedtag_exists(tag, id) || !tag->value[i = tag->map[id]])
+    if (!parsedtag_exists(tag, id))
+	return 0;
+    i = tag->map[id];
+    if (i >= MAX_TAG_ATTR_INLINE || !tag->value[i])
 	return 0;
     return toValFunc[AttrMAP[id].vtype] (tag->value[i], value);
 }
@@ -304,6 +318,8 @@ parsedtag2str(struct parsed_tag *tag)
     int tag_id = tag->tagid;
     int nattr = TagMAP[tag_id].max_attribute;
     Str tagstr = Strnew();
+    if (nattr > MAX_TAG_ATTR_INLINE)
+	nattr = MAX_TAG_ATTR_INLINE;
     Strcat_char(tagstr, '<');
     Strcat_charp(tagstr, TagMAP[tag_id].name);
     for (i = 0; i < nattr; i++) {

@@ -5,14 +5,16 @@
 #include "html.h"
 #include "Str.h"
 
+#define MAX_TAG_ATTR_INLINE 24
+
 /* Parsed Tag structure */
 
 struct parsed_tag {
     unsigned char tagid;
-    unsigned char *attrid;
-    char **value;
-    unsigned char *map;
-    char need_reconstruct;
+    unsigned char need_reconstruct;
+    unsigned char attrid[MAX_TAG_ATTR_INLINE];
+    char *value[MAX_TAG_ATTR_INLINE];
+    const unsigned char *map;
 };
 
 #define parsedtag_accepts(tag, id) ((tag)->map&&(tag)->map[id]!=MAX_TAGATTR)
