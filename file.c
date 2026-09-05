@@ -48,12 +48,17 @@ static void addnewline(Buffer *buf, char *line, Lineprop *prop,
 		       Linecolor *color, int pos, int width, int nlines);
 static void addLink(Buffer *buf, struct parsed_tag *tag);
 
+static ParsedURL *cur_baseURL = NULL;
+
 static void
 check_and_prefetch_url_dns(const char *url)
 {
-    if (url && (strncasecmp(url, "http://", 7) == 0 ||
-		strncasecmp(url, "https://", 8) == 0 ||
-		(url[0] == '/' && url[1] == '/'))) {
+    if (!url || *url == '\0') return;
+
+    /* Handle full absolute URLs or protocol-relative URLs */
+    if (strncasecmp(url, "http://", 7) == 0 ||
+	strncasecmp(url, "https://", 8) == 0 ||
+	(url[0] == '/' && url[1] == '/')) {
 	ParsedURL pu;
 	char *tmp_url = (char *)url;
 	if (url[0] == '/' && url[1] == '/') {
@@ -64,16 +69,23 @@ check_and_prefetch_url_dns(const char *url)
 	    prefetch_dns(pu.host, pu.port ? pu.port : (pu.scheme == SCM_HTTPS ? 443 : 80));
 	}
     }
+    else if (cur_baseURL && cur_baseURL->host && *cur_baseURL->host) {
+	/* Resolve relative URLs (including root-relative /path and document-relative paths) */
+	if (url[0] != '#' && strncasecmp(url, "javascript:", 11) != 0 &&
+	    strncasecmp(url, "mailto:", 7) != 0 && strncasecmp(url, "data:", 5) != 0) {
+	    ParsedURL pu;
+	    parseURL2((char *)url, &pu, cur_baseURL);
+	    if (pu.host && *pu.host && (pu.scheme == SCM_HTTP || pu.scheme == SCM_HTTPS)) {
+		prefetch_dns(pu.host, pu.port ? pu.port : (pu.scheme == SCM_HTTPS ? 443 : 80));
+	    }
+	}
+    }
 }
 
 static JMP_BUF AbortLoading;
 
 static struct table *tables[MAX_TABLE];
 static struct table_mode table_mode[MAX_TABLE];
-
-#if defined(USE_M17N) || defined(USE_IMAGE)
-static ParsedURL *cur_baseURL = NULL;
-#endif
 #ifdef USE_M17N
 static wc_ces cur_document_charset = 0;
 #endif
@@ -5452,13 +5464,28 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	}
 	return 1;
     case HTML_BASE:
-#if defined(USE_M17N) || defined(USE_IMAGE)
 	p = NULL;
 	if (parsedtag_get_value(tag, ATTR_HREF, &p)) {
 	    cur_baseURL = New(ParsedURL);
 	    parseURL(p, cur_baseURL, NULL);
 	}
-#endif
+	return 0;
+    case HTML_LINK:
+	p = NULL;
+	q = NULL;
+	parsedtag_get_value(tag, ATTR_REL, &p);
+	parsedtag_get_value(tag, ATTR_HREF, &q);
+	if (p && q && (!strcasecmp(p, "dns-prefetch") ||
+		       !strcasecmp(p, "preconnect") ||
+		       !strcasecmp(p, "preload") ||
+		       !strcasecmp(p, "prerender") ||
+		       !strcasecmp(p, "prefetch") ||
+		       !strcasecmp(p, "stylesheet") ||
+		       !strcasecmp(p, "icon") ||
+		       !strcasecmp(p, "shortcut icon"))) {
+	    check_and_prefetch_url_dns(q);
+	}
+	return 0;
     case HTML_MAP:
     case HTML_N_MAP:
     case HTML_AREA:

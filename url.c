@@ -992,6 +992,21 @@ tune_socket(int sock)
     if (sock < 0) return;
     setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof(on));
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char *)&on, sizeof(on));
+#ifdef TCP_KEEPALIVE
+    int keepidle = 30; /* Probe after 30s idle */
+    setsockopt(sock, IPPROTO_TCP, TCP_KEEPALIVE, (char *)&keepidle, sizeof(keepidle));
+#endif
+#ifdef TCP_KEEPINTVL
+    int keepintvl = 5; /* Retry probe every 5s */
+    setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, (char *)&keepintvl, sizeof(keepintvl));
+#endif
+#ifdef TCP_KEEPCNT
+    int keepcnt = 3; /* Drop connection after 3 failed probes */
+    setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, (char *)&keepcnt, sizeof(keepcnt));
+#endif
+#ifdef TCP_FASTOPEN
+    setsockopt(sock, IPPROTO_TCP, TCP_FASTOPEN, (char *)&on, sizeof(on));
+#endif
     setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbuf, sizeof(rcvbuf));
     setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf, sizeof(sndbuf));
     setsockopt(sock, IPPROTO_IP, IP_TOS, (char *)&tos, sizeof(tos));
