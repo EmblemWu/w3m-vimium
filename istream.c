@@ -44,6 +44,9 @@ static void brotli_stream_close(struct brotli_handle *handle);
 static int chunked_stream_read(struct chunked_handle *handle, char *buf, int len);
 static void chunked_stream_close(struct chunked_handle *handle);
 
+static int length_stream_read(struct length_handle *handle, char *buf, int len);
+static void length_stream_close(struct length_handle *handle);
+
 static void memchop(char *p, int *len);
 
 static void
@@ -318,6 +321,27 @@ newChunkedStream(InputStream is)
     return stream;
 }
 
+InputStream
+newLengthStream(InputStream is, clen_t content_length)
+{
+    InputStream stream;
+
+    if (is == NULL)
+	return NULL;
+    stream = NewWithoutGC(union input_stream);
+    init_base_stream(&stream->base, STREAM_BUF_SIZE);
+    stream->length.type = IST_LENGTH;
+    stream->length.handle = NewWithoutGC(struct length_handle);
+    memset(stream->length.handle, 0, sizeof(struct length_handle));
+    stream->length.handle->is = is;
+    stream->length.handle->remaining = content_length;
+    stream->length.read = (int (*)())length_stream_read;
+    stream->length.close = (void (*)())length_stream_close;
+    if (content_length == 0)
+	stream->base.iseos = TRUE;
+    return stream;
+}
+
 int
 ISclose(InputStream stream)
 {
@@ -482,6 +506,9 @@ ISset_reusable(InputStream stream, int reusable)
     case IST_CHUNKED:
 	ISset_reusable(stream->chunked.handle->is, reusable);
 	break;
+    case IST_LENGTH:
+	ISset_reusable(stream->length.handle->is, reusable);
+	break;
     default:
 	break;
     }
@@ -509,6 +536,8 @@ ISfileno(InputStream stream)
 	return ISfileno(stream->brotli.handle->is);
     case IST_CHUNKED:
 	return ISfileno(stream->chunked.handle->is);
+    case IST_LENGTH:
+	return ISfileno(stream->length.handle->is);
     default:
 	return -1;
     }
@@ -1222,6 +1251,56 @@ chunked_stream_read(struct chunked_handle *handle, char *buf, int len)
 
     growbuf_clear(&gb);
     return total_read;
+}
+
+static void
+length_stream_close(struct length_handle *handle)
+{
+    if (handle) {
+	if (handle->is) {
+	    if (handle->remaining > 0 && handle->remaining <= 32768) {
+		/* Fast-drain small remaining body (<=32KB) to keep persistent connection reusable */
+		char drain_buf[4096];
+		while (handle->remaining > 0) {
+		    int to_drain = handle->remaining > (clen_t)sizeof(drain_buf) ? (int)sizeof(drain_buf) : (int)handle->remaining;
+		    int d = ISread_n(handle->is, drain_buf, to_drain);
+		    if (d <= 0) {
+			handle->remaining = -1;
+			break;
+		    }
+		    handle->remaining -= d;
+		}
+	    }
+	    if (handle->remaining != 0) {
+		ISset_reusable(handle->is, 0);
+	    }
+	    ISclose(handle->is);
+	    handle->is = NULL;
+	}
+	xfree(handle);
+    }
+}
+
+static int
+length_stream_read(struct length_handle *handle, char *buf, int len)
+{
+    int to_read;
+    int nread;
+
+    if (!handle || !handle->is || len <= 0 || handle->remaining <= 0)
+	return 0;
+
+    to_read = len;
+    if ((clen_t)to_read > handle->remaining)
+	to_read = (int)handle->remaining;
+
+    nread = ISread_n(handle->is, buf, to_read);
+    if (nread <= 0) {
+	return 0;
+    }
+
+    handle->remaining -= nread;
+    return nread;
 }
 
 

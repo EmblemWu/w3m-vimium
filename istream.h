@@ -168,6 +168,20 @@ struct chunked_stream {
     void (*close) ();
 };
 
+struct length_handle {
+    union input_stream *is;
+    clen_t remaining;
+};
+
+struct length_stream {
+    struct stream_buffer stream;
+    struct length_handle *handle;
+    char type;
+    char iseos;
+    int (*read) ();
+    void (*close) ();
+};
+
 union input_stream {
     struct base_stream base;
     struct file_stream file;
@@ -179,6 +193,7 @@ union input_stream {
     struct zlib_stream zlib;
     struct brotli_stream brotli;
     struct chunked_stream chunked;
+    struct length_stream length;
 };
 
 typedef struct base_stream *BaseStream;
@@ -191,6 +206,7 @@ typedef struct encoded_stream *EncodedStrStream;
 typedef struct zlib_stream *ZlibStrStream;
 typedef struct brotli_stream *BrotliStrStream;
 typedef struct chunked_stream *ChunkedStrStream;
+typedef struct length_stream *LengthStrStream;
 
 typedef union input_stream *InputStream;
 
@@ -207,6 +223,7 @@ extern InputStream newEncodedStream(InputStream is, char encoding);
 extern InputStream newZlibStream(InputStream is, int is_gzip);
 extern InputStream newBrotliStream(InputStream is);
 extern InputStream newChunkedStream(InputStream is);
+extern InputStream newLengthStream(InputStream is, clen_t content_length);
 extern int ISclose(InputStream stream);
 extern int ISgetc(InputStream stream);
 extern int ISundogetc(InputStream stream);
@@ -234,6 +251,7 @@ extern Str ssl_get_certificate(SSL * ssl, char *hostname);
 #define IST_ZLIB	5
 #define IST_CHUNKED	6
 #define IST_BROTLI	7
+#define IST_LENGTH	8
 #define IST_UNCLOSE	0x10
 
 #define IStype(stream) ((stream)->base.type)

@@ -78,6 +78,7 @@ typedef struct {
 #endif
     char *url;
     time_t modtime;
+    clen_t content_length;
 } URLFile;
 
 #define CMP_NOCOMPRESS   0

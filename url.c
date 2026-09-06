@@ -694,10 +694,7 @@ checkout_http_connection(int scheme, const char *host, int port, int *out_sock, 
 	    pfd.revents = 0;
 	    int ret = poll(&pfd, 1, 0);
 	    if (ret > 0) {
-		char peek_byte;
-		int n = recv(http_conn_pool[i].sock, &peek_byte, 1, MSG_PEEK | MSG_DONTWAIT);
-		if (n <= 0) {
-		    /* Peer closed or reset connection */
+		if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
 		    close(http_conn_pool[i].sock);
 #ifdef USE_SSL
 		    if (http_conn_pool[i].ssl)
@@ -706,6 +703,29 @@ checkout_http_connection(int scheme, const char *host, int port, int *out_sock, 
 #endif
 		    http_conn_pool[i].sock = -1;
 		    continue;
+		}
+#ifdef USE_SSL
+		if (http_conn_pool[i].ssl) {
+		    char peek_byte;
+		    int n = SSL_peek(http_conn_pool[i].ssl, &peek_byte, 1);
+		    if (n <= 0) {
+			close(http_conn_pool[i].sock);
+			SSL_free(http_conn_pool[i].ssl);
+			http_conn_pool[i].ssl = NULL;
+			http_conn_pool[i].sock = -1;
+			continue;
+		    }
+		}
+		else
+#endif
+		{
+		    char peek_byte;
+		    int n = recv(http_conn_pool[i].sock, &peek_byte, 1, MSG_PEEK | MSG_DONTWAIT);
+		    if (n <= 0) {
+			close(http_conn_pool[i].sock);
+			http_conn_pool[i].sock = -1;
+			continue;
+		    }
 		}
 	    }
 	    else if (ret < 0) {
@@ -2131,7 +2151,8 @@ HTTPrequest(ParsedURL *pu, ParsedURL *current, HRequest *hr, TextList *extra)
 #ifdef USE_COOKIE
     Str cookie;
 #endif				/* USE_COOKIE */
-    tmp = HTTPrequestMethod(hr);
+    tmp = Strnew_size(1024);
+    Strcat(tmp, HTTPrequestMethod(hr));
     Strcat_charp(tmp, " ");
     Strcat_charp(tmp, HTTPrequestURI(pu, hr)->ptr);
     Strcat_charp(tmp, " HTTP/1.1\r\n");
@@ -2217,6 +2238,7 @@ init_stream(URLFile *uf, int scheme, InputStream stream)
     uf->guess_type = NULL;
     uf->ext = NULL;
     uf->modtime = -1;
+    uf->content_length = -1;
 }
 
 URLFile

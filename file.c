@@ -631,6 +631,7 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 	http_response_code = -1;
     else
 	http_response_code = 0;
+    uf->content_length = -1;
 
     if (thru && !newBuf->header_source
 #ifdef USE_IMAGE
@@ -750,6 +751,9 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 	    while (*p && IS_SPACE(*p))
 		p++;
 	    http_response_code = atoi(p);
+	    if (http_response_code == 204 || http_response_code == 304 ||
+		(http_response_code >= 100 && http_response_code < 200))
+		uf->content_length = 0;
 	    if (fmInitialized) {
 		message(lineBuf2->ptr, 0, 0);
 		refresh();
@@ -765,6 +769,14 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 		    ISset_reusable(uf->stream, 0);
 		}
 	    }
+	}
+	else if (!strncasecmp(lineBuf2->ptr, "content-length:", 15)) {
+	    p = lineBuf2->ptr + 15;
+	    while (IS_SPACE(*p))
+		p++;
+	    if (http_response_code != 204 && http_response_code != 304 &&
+		!(http_response_code >= 100 && http_response_code < 200))
+		uf->content_length = strtoclen(p);
 	}
 	else if (!strncasecmp(lineBuf2->ptr, "transfer-encoding:", 18)) {
 	    p = lineBuf2->ptr + 18;
@@ -974,6 +986,14 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 	fclose(src);
     if (uf->is_chunked && uf->stream) {
 	uf->stream = newChunkedStream(uf->stream);
+    }
+    else if (uf->content_length >= 0 && uf->stream &&
+	     (uf->scheme == SCM_HTTP
+#ifdef USE_SSL
+	      || uf->scheme == SCM_HTTPS
+#endif
+	     )) {
+	uf->stream = newLengthStream(uf->stream, uf->content_length);
     }
 }
 
@@ -1938,7 +1958,8 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 	    /* 307: Temporary Redirect (HTTP/1.1) */
 	    tpath = url_encode(p, NULL, 0);
 	    request = NULL;
-	    ISset_reusable(f.stream, 0);
+	    if (f.content_length != 0)
+		ISset_reusable(f.stream, 0);
 	    UFclose(&f);
 	    current = New(ParsedURL);
 	    copyParsedURL(current, &pu);
@@ -2121,7 +2142,8 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 	    /* document moved */
 	    tpath = url_encode(remove_space(p), NULL, 0);
 	    request = NULL;
-	    ISset_reusable(f.stream, 0);
+	    if (f.content_length != 0)
+		ISset_reusable(f.stream, 0);
 	    UFclose(&f);
 	    add_auth_cookie_flag = 0;
 	    current = New(ParsedURL);
@@ -2229,6 +2251,8 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
     current_content_length = 0;
     if ((p = checkHeader(t_buf, "Content-Length:")) != NULL)
 	current_content_length = strtoclen(p);
+    else if (f.content_length > 0)
+	current_content_length = f.content_length;
 #ifdef USE_GOPHER
     if (do_download || gopher_download) {
 #else
@@ -8843,7 +8867,7 @@ uncompress_stream(URLFile *uf, char **src)
     }
 
     /* Fast path: Native in-memory streaming zlib/brotli decompression (0 disk I/O, 0 fork) */
-    if (uf->compression == CMP_COMPRESS || uf->compression == CMP_DEFLATE) {
+    if (uf->compression == CMP_COMPRESS || uf->compression == CMP_DEFLATE || uf->compression == CMP_GZIP) {
 	int comp_type = uf->compression;
 	uf->compression = CMP_NOCOMPRESS;
 	uf->stream = newZlibStream(uf->stream, comp_type);
