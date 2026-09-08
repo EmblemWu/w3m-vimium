@@ -831,14 +831,17 @@ checkin_http_connection(int scheme, const char *host, int port, int sock, void *
     pthread_mutex_unlock(&http_conn_pool_mutex);
 }
 
+#define MAX_DNS_ADDRS 4
 typedef struct {
     char host[128];
-    int port;
-    struct sockaddr_storage addr;
-    socklen_t addrlen;
-    int family;
-    int socktype;
-    int protocol;
+    struct {
+	struct sockaddr_storage addr;
+	socklen_t addrlen;
+	int family;
+	int socktype;
+	int protocol;
+    } addrs[MAX_DNS_ADDRS];
+    int naddr;
     time_t expire;
     int in_flight;
 } FastDnsEntry;
@@ -849,16 +852,15 @@ static int fast_dns_count = 0;
 static pthread_mutex_t fast_dns_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int
-lookup_dns_cache(const char *host, int port, FastDnsEntry *out)
+lookup_dns_cache(const char *host, FastDnsEntry *out)
 {
     int i;
     time_t now = time(NULL);
-    if (!host) return 0;
+    if (!host || *host == '\0') return 0;
     pthread_mutex_lock(&fast_dns_mutex);
     for (i = 0; i < fast_dns_count; i++) {
-	if (fast_dns_cache[i].port == port &&
-	    strcmp(fast_dns_cache[i].host, host) == 0) {
-	    if (now < fast_dns_cache[i].expire) {
+	if (strcasecmp(fast_dns_cache[i].host, host) == 0) {
+	    if (now < fast_dns_cache[i].expire && fast_dns_cache[i].naddr > 0) {
 		*out = fast_dns_cache[i];
 		pthread_mutex_unlock(&fast_dns_mutex);
 		return 1;
@@ -870,39 +872,41 @@ lookup_dns_cache(const char *host, int port, FastDnsEntry *out)
 }
 
 static void
-store_dns_cache(const char *host, int port, struct addrinfo *res)
+store_dns_cache(const char *host, struct addrinfo *res0)
 {
     int i, idx;
-    if (!host || !res || res->ai_addrlen > sizeof(struct sockaddr_storage))
+    struct addrinfo *res;
+    if (!host || !res0)
 	return;
     pthread_mutex_lock(&fast_dns_mutex);
+    idx = -1;
     for (i = 0; i < fast_dns_count; i++) {
-	if (fast_dns_cache[i].port == port &&
-	    strcmp(fast_dns_cache[i].host, host) == 0) {
-	    memcpy(&fast_dns_cache[i].addr, res->ai_addr, res->ai_addrlen);
-	    fast_dns_cache[i].addrlen = res->ai_addrlen;
-	    fast_dns_cache[i].family = res->ai_family;
-	    fast_dns_cache[i].socktype = res->ai_socktype;
-	    fast_dns_cache[i].protocol = res->ai_protocol;
-	    fast_dns_cache[i].expire = time(NULL) + 600; /* 10 min TTL */
-	    fast_dns_cache[i].in_flight = 0;
-	    pthread_mutex_unlock(&fast_dns_mutex);
-	    return;
+	if (strcasecmp(fast_dns_cache[i].host, host) == 0) {
+	    idx = i;
+	    break;
 	}
     }
-    if (fast_dns_count < DNS_CACHE_MAX) {
-	idx = fast_dns_count++;
-    } else {
-	idx = rand() % DNS_CACHE_MAX;
+    if (idx < 0) {
+	if (fast_dns_count < DNS_CACHE_MAX) {
+	    idx = fast_dns_count++;
+	} else {
+	    idx = rand() % DNS_CACHE_MAX;
+	}
+	strncpy(fast_dns_cache[idx].host, host, sizeof(fast_dns_cache[idx].host) - 1);
+	fast_dns_cache[idx].host[sizeof(fast_dns_cache[idx].host) - 1] = '\0';
     }
-    strncpy(fast_dns_cache[idx].host, host, sizeof(fast_dns_cache[idx].host) - 1);
-    fast_dns_cache[idx].host[sizeof(fast_dns_cache[idx].host) - 1] = '\0';
-    fast_dns_cache[idx].port = port;
-    memcpy(&fast_dns_cache[idx].addr, res->ai_addr, res->ai_addrlen);
-    fast_dns_cache[idx].addrlen = res->ai_addrlen;
-    fast_dns_cache[idx].family = res->ai_family;
-    fast_dns_cache[idx].socktype = res->ai_socktype;
-    fast_dns_cache[idx].protocol = res->ai_protocol;
+    fast_dns_cache[idx].naddr = 0;
+    for (res = res0; res && fast_dns_cache[idx].naddr < MAX_DNS_ADDRS; res = res->ai_next) {
+	if (res->ai_addrlen <= sizeof(struct sockaddr_storage)) {
+	    int n = fast_dns_cache[idx].naddr;
+	    memcpy(&fast_dns_cache[idx].addrs[n].addr, res->ai_addr, res->ai_addrlen);
+	    fast_dns_cache[idx].addrs[n].addrlen = res->ai_addrlen;
+	    fast_dns_cache[idx].addrs[n].family = res->ai_family;
+	    fast_dns_cache[idx].addrs[n].socktype = res->ai_socktype;
+	    fast_dns_cache[idx].addrs[n].protocol = res->ai_protocol;
+	    fast_dns_cache[idx].naddr++;
+	}
+    }
     fast_dns_cache[idx].expire = time(NULL) + 600; /* 10 min TTL */
     fast_dns_cache[idx].in_flight = 0;
     pthread_mutex_unlock(&fast_dns_mutex);
@@ -925,14 +929,13 @@ dns_prefetch_worker(void *arg)
     hints.ai_family = PF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     if (getaddrinfo(darg->host, portbuf, &hints, &res0) == 0 && res0) {
-	store_dns_cache(darg->host, darg->port, res0);
+	store_dns_cache(darg->host, res0);
 	freeaddrinfo(res0);
     } else {
 	int i;
 	pthread_mutex_lock(&fast_dns_mutex);
 	for (i = 0; i < fast_dns_count; i++) {
-	    if (fast_dns_cache[i].port == darg->port &&
-		strcmp(fast_dns_cache[i].host, darg->host) == 0) {
+	    if (strcasecmp(fast_dns_cache[i].host, darg->host) == 0) {
 		fast_dns_cache[i].in_flight = 0;
 		break;
 	    }
@@ -957,8 +960,7 @@ prefetch_dns(const char *host, int port)
 
     pthread_mutex_lock(&fast_dns_mutex);
     for (i = 0; i < fast_dns_count; i++) {
-	if (fast_dns_cache[i].port == pport &&
-	    strcmp(fast_dns_cache[i].host, host) == 0) {
+	if (strcasecmp(fast_dns_cache[i].host, host) == 0) {
 	    if (fast_dns_cache[i].in_flight || now < fast_dns_cache[i].expire) {
 		pthread_mutex_unlock(&fast_dns_mutex);
 		return; /* already cached or in-flight */
@@ -976,7 +978,7 @@ prefetch_dns(const char *host, int port)
 	}
 	strncpy(fast_dns_cache[idx].host, host, sizeof(fast_dns_cache[idx].host) - 1);
 	fast_dns_cache[idx].host[sizeof(fast_dns_cache[idx].host) - 1] = '\0';
-	fast_dns_cache[idx].port = pport;
+	fast_dns_cache[idx].naddr = 0;
 	fast_dns_cache[idx].expire = 0;
     }
     fast_dns_cache[idx].in_flight = 1;
@@ -1124,15 +1126,25 @@ openSocket(char *const hostname,
     }
 
 #ifdef INET6
-    /* Fast in-memory DNS cache lookup */
+    /* Fast in-memory DNS cache lookup with multi-homed IP fast fallback */
     FastDnsEntry cached_dns;
     int port_num = remoteport_num ? remoteport_num : 80;
     if (remoteport_name && strcmp(remoteport_name, "https") == 0)
 	port_num = 443;
-    if (lookup_dns_cache(hostname, port_num, &cached_dns)) {
-	sock = socket(cached_dns.family, cached_dns.socktype, cached_dns.protocol);
-	if (sock >= 0) {
-	    if (tcp_connect_with_timeout(sock, (struct sockaddr *)&cached_dns.addr, cached_dns.addrlen, 5000) == 0) {
+    if (lookup_dns_cache(hostname, &cached_dns)) {
+	int a;
+	for (a = 0; a < cached_dns.naddr; a++) {
+	    sock = socket(cached_dns.addrs[a].family, cached_dns.addrs[a].socktype, cached_dns.addrs[a].protocol);
+	    if (sock < 0)
+		continue;
+	    struct sockaddr_storage dest_addr = cached_dns.addrs[a].addr;
+	    if (dest_addr.ss_family == AF_INET) {
+		((struct sockaddr_in *)&dest_addr)->sin_port = htons(port_num);
+	    }
+	    else if (dest_addr.ss_family == AF_INET6) {
+		((struct sockaddr_in6 *)&dest_addr)->sin6_port = htons(port_num);
+	    }
+	    if (tcp_connect_with_timeout(sock, (struct sockaddr *)&dest_addr, cached_dns.addrs[a].addrlen, 3000) == 0) {
 		tune_socket(sock);
 		TRAP_OFF;
 		return sock;
@@ -1184,7 +1196,7 @@ openSocket(char *const hostname,
 		continue;
 	    }
 	    tune_socket(sock);
-	    store_dns_cache(hname, port_num, res);
+	    store_dns_cache(hname, res0);
 	    break;
 	}
 	if (sock < 0) {
@@ -1977,7 +1989,7 @@ schemeNumToName(int scheme)
 static char *
 otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
 {
-    Str s = Strnew();
+    Str s = Strnew_size(512);
     const int *no_referer_ptr;
     int no_referer;
     const char* url_user_agent = query_SCONF_USER_AGENT(target);
@@ -2241,6 +2253,34 @@ init_stream(URLFile *uf, int scheme, InputStream stream)
     uf->content_length = -1;
 }
 
+#ifdef USE_SSL
+static int
+full_ssl_write(SSL *ssl, const char *buf, int len)
+{
+    int total = 0;
+    while (total < len) {
+	int n = SSL_write(ssl, buf + total, len - total);
+	if (n <= 0)
+	    return n;
+	total += n;
+    }
+    return total;
+}
+#endif
+
+static int
+full_tcp_write(int sock, const char *buf, int len)
+{
+    int total = 0;
+    while (total < len) {
+	int n = write(sock, buf + total, len - total);
+	if (n <= 0)
+	    return n;
+	total += n;
+    }
+    return total;
+}
+
 URLFile
 openURL(char *url, ParsedURL *pu, ParsedURL *current,
 	URLOption *option, FormList *request, TextList *extra_header,
@@ -2486,15 +2526,15 @@ openURL(char *url, ParsedURL *pu, ParsedURL *current,
 	if (pu->scheme == SCM_HTTPS) {
 	    int wret = -1;
 	    if (sslh)
-		wret = SSL_write(sslh, tmp->ptr, tmp->length);
+		wret = full_ssl_write(sslh, tmp->ptr, tmp->length);
 	    else
-		wret = write(sock, tmp->ptr, tmp->length);
+		wret = full_tcp_write(sock, tmp->ptr, tmp->length);
 	    if (wret <= 0) {
 		/* Connection closed by server or failed write, retry once with fresh connection */
 		checkin_http_connection(pu->scheme, pu->host, pu->port, sock, sslh, NULL, 0);
 		sock = openSocket(pu->host, schemeNumToName(pu->scheme), pu->port);
 		if (sock >= 0 && (sslh = openSSLHandle(sock, pu->host, &uf.ssl_certificate))) {
-		    SSL_write(sslh, tmp->ptr, tmp->length);
+		    full_ssl_write(sslh, tmp->ptr, tmp->length);
 		}
 		else {
 		    *status = HTST_MISSING;
@@ -2525,13 +2565,13 @@ openURL(char *url, ParsedURL *pu, ParsedURL *current,
 	else
 #endif				/* USE_SSL */
 	{
-	    int wret = write(sock, tmp->ptr, tmp->length);
+	    int wret = full_tcp_write(sock, tmp->ptr, tmp->length);
 	    if (wret <= 0) {
 		/* Connection closed by server, retry once with fresh connection */
 		checkin_http_connection(pu->scheme, pu->host, pu->port, sock, NULL, NULL, 0);
 		sock = openSocket(pu->host, schemeNumToName(pu->scheme), pu->port);
 		if (sock >= 0) {
-		    write(sock, tmp->ptr, tmp->length);
+		    full_tcp_write(sock, tmp->ptr, tmp->length);
 		}
 		else {
 		    *status = HTST_MISSING;

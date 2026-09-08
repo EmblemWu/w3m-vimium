@@ -995,6 +995,15 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 	     )) {
 	uf->stream = newLengthStream(uf->stream, uf->content_length);
     }
+    else if (uf->stream &&
+	     (uf->scheme == SCM_HTTP
+#ifdef USE_SSL
+	      || uf->scheme == SCM_HTTPS
+#endif
+	     )) {
+	/* Delimited by EOF, cannot be safely reused */
+	ISset_reusable(uf->stream, 0);
+    }
 }
 
 char *
@@ -2372,6 +2381,8 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
     UFclose(&f);
     frame_source = 0;
     if (b && b != NO_BUFFER) {
+	if (b->check_url & CHK_URL)
+	    chkURLBuffer(b);
 	b->real_scheme = f.scheme;
 	b->real_type = real_type;
 	if (w3m_backend)

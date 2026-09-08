@@ -47,8 +47,8 @@ newBuffer(int width)
 #ifdef USE_M17N
     n->auto_detect = WcOption.auto_detect;
 #endif
-    n->check_url = MarkAllPages; /* use default from -o mark_all_pages */
-    n->need_reshape = 1;	 /* always reshape new buffers to mark URLs */
+    n->check_url = MarkAllPages ? CHK_URL : 0; /* use default from -o mark_all_pages */
+    n->need_reshape = 0; /* avoid redundant double parsing on initial display */
     return n;
 }
 
