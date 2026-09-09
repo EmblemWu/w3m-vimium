@@ -86,11 +86,13 @@ struct brotli_handle {
 #define CHUNK_STATE_TRAILER_CRLF  2
 #define CHUNK_STATE_TRAILERS      3
 #define CHUNK_STATE_EOS           4
+#define CHUNK_STATE_ERROR         5
 
 struct chunked_handle {
     union input_stream *is;
     long long chunk_remaining;
     int state;
+    struct growbuf gb;
 };
 
 

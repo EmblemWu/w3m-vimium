@@ -316,6 +316,7 @@ newChunkedStream(InputStream is)
     stream->chunked.handle->is = is;
     stream->chunked.handle->state = CHUNK_STATE_HEADER;
     stream->chunked.handle->chunk_remaining = 0;
+    growbuf_init_without_GC(&stream->chunked.handle->gb);
     stream->chunked.read = (int (*)())chunked_stream_read;
     stream->chunked.close = (void (*)())chunked_stream_close;
     return stream;
@@ -352,6 +353,17 @@ ISclose(InputStream stream)
         if (stream->base.type & IST_UNCLOSE) {
             return -1;
         }
+        /* Connection pool safety: if stream has unconsumed bytes in its buffer, it cannot be safely reused */
+        if ((stream->base.type & ~IST_UNCLOSE) == IST_BASIC) {
+            if (stream->base.stream.cur < stream->base.stream.next)
+                ((struct basic_conn_handle *)stream->base.handle)->is_reusable = 0;
+        }
+#ifdef USE_SSL
+        else if ((stream->base.type & ~IST_UNCLOSE) == IST_SSL) {
+            if (stream->base.stream.cur < stream->base.stream.next)
+                stream->ssl.handle->is_reusable = 0;
+        }
+#endif
         prevtrap = mySignal(SIGINT, SIG_IGN);
         stream->base.close (stream->base.handle);
         mySignal(SIGINT, prevtrap);
@@ -390,10 +402,59 @@ ISundogetc(InputStream stream)
 Str
 StrISgets2(InputStream stream, char crnl)
 {
-    struct growbuf gb;
+    BaseStream base;
+    StreamBuffer sb;
+    int cur, next, i, found;
+    char *buf;
 
     if (stream == NULL)
 	return NULL;
+    base = &stream->base;
+    if (base->iseos)
+	return Strnew_size(0);
+
+    if (MUST_BE_UPDATED(base)) {
+	do_update(base);
+	if (base->iseos)
+	    return Strnew_size(0);
+    }
+
+    sb = &base->stream;
+    cur = sb->cur;
+    next = sb->next;
+    buf = (char *)sb->buf;
+    found = 0;
+    i = cur;
+
+    while (i < next) {
+	if (buf[i] == '\n') {
+	    i++;
+	    found = 1;
+	    break;
+	}
+	if (crnl && buf[i] == '\r') {
+	    i++;
+	    if (i < next) {
+		if (buf[i] == '\n')
+		    i++;
+		found = 1;
+		break;
+	    }
+	    /* '\r' is the very last byte in buffer, need update to check if '\n' follows */
+	    break;
+	}
+	i++;
+    }
+
+    if (found) {
+	int len = i - cur;
+	Str s = Strnew_charp_n(&buf[cur], len);
+	sb->cur = i;
+	return s;
+    }
+
+    /* Fallback for lines spanning across stream buffer updates */
+    struct growbuf gb;
     growbuf_init(&gb);
     ISgets_to_growbuf(stream, &gb, crnl);
     return growbuf_to_Str(&gb);
@@ -1157,6 +1218,7 @@ chunked_stream_close(struct chunked_handle *handle)
 	    ISclose(handle->is);
 	    handle->is = NULL;
 	}
+	growbuf_clear(&handle->gb);
 	xfree(handle);
     }
 }
@@ -1165,23 +1227,20 @@ static int
 chunked_stream_read(struct chunked_handle *handle, char *buf, int len)
 {
     int total_read = 0;
-    struct growbuf gb;
 
     if (!handle || !handle->is || len <= 0)
 	return 0;
 
-    growbuf_init_without_GC(&gb);
-
-    while (total_read < len && handle->state != CHUNK_STATE_EOS) {
+    while (total_read < len && handle->state != CHUNK_STATE_EOS && handle->state != CHUNK_STATE_ERROR) {
 	switch (handle->state) {
 	case CHUNK_STATE_HEADER: {
-	    ISgets_to_growbuf(handle->is, &gb, TRUE);
-	    if (gb.length == 0) {
+	    ISgets_to_growbuf(handle->is, &handle->gb, TRUE);
+	    if (handle->gb.length == 0) {
 		/* Unexpected EOF or connection closed */
-		handle->state = CHUNK_STATE_EOS;
+		handle->state = CHUNK_STATE_ERROR;
 		break;
 	    }
-	    char *p = gb.ptr;
+	    char *p = handle->gb.ptr;
 	    while (*p == ' ' || *p == '\t')
 		p++;
 	    if (*p == '\r' || *p == '\n' || *p == '\0') {
@@ -1192,7 +1251,7 @@ chunked_stream_read(struct chunked_handle *handle, char *buf, int len)
 	    unsigned long long chunk_sz = strtoull(p, &endptr, 16);
 	    if (endptr == p) {
 		/* Invalid chunk header */
-		handle->state = CHUNK_STATE_EOS;
+		handle->state = CHUNK_STATE_ERROR;
 		break;
 	    }
 	    if (chunk_sz == 0) {
@@ -1209,7 +1268,7 @@ chunked_stream_read(struct chunked_handle *handle, char *buf, int len)
 		to_read = (int)handle->chunk_remaining;
 	    int nread = ISread_n(handle->is, buf + total_read, to_read);
 	    if (nread <= 0) {
-		handle->state = CHUNK_STATE_EOS;
+		handle->state = CHUNK_STATE_ERROR;
 		break;
 	    }
 	    total_read += nread;
@@ -1221,17 +1280,21 @@ chunked_stream_read(struct chunked_handle *handle, char *buf, int len)
 	}
 	case CHUNK_STATE_TRAILER_CRLF: {
 	    /* Consume the \r\n immediately following the chunk data */
-	    ISgets_to_growbuf(handle->is, &gb, TRUE);
+	    ISgets_to_growbuf(handle->is, &handle->gb, TRUE);
+	    if (handle->gb.length == 0) {
+		handle->state = CHUNK_STATE_ERROR;
+		break;
+	    }
 	    handle->state = CHUNK_STATE_HEADER;
 	    break;
 	}
 	case CHUNK_STATE_TRAILERS: {
 	    /* Consume any trailer headers until empty line */
 	    while (1) {
-		ISgets_to_growbuf(handle->is, &gb, TRUE);
-		if (gb.length == 0)
+		ISgets_to_growbuf(handle->is, &handle->gb, TRUE);
+		if (handle->gb.length == 0)
 		    break;
-		char *p = gb.ptr;
+		char *p = handle->gb.ptr;
 		while (*p == ' ' || *p == '\t')
 		    p++;
 		if (*p == '\r' || *p == '\n' || *p == '\0')
@@ -1241,6 +1304,7 @@ chunked_stream_read(struct chunked_handle *handle, char *buf, int len)
 	    break;
 	}
 	case CHUNK_STATE_EOS:
+	case CHUNK_STATE_ERROR:
 	default:
 	    break;
 	}
@@ -1249,7 +1313,6 @@ chunked_stream_read(struct chunked_handle *handle, char *buf, int len)
 	    break;
     }
 
-    growbuf_clear(&gb);
     return total_read;
 }
 

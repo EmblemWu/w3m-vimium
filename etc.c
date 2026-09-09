@@ -840,6 +840,36 @@ read_token(Str buf, char **instr, int *status, int pre, int append)
     if (**instr == '\0')
 	return 0;
     for (p = *instr; *p; p++) {
+	/* Fast-scan run of plain text characters when in R_ST_NORMAL */
+	if (*status == R_ST_NORMAL) {
+	    char *start = p;
+	    while (*p && *p != '<' && *p != '&' && (unsigned char)*p != 0210)
+		p++;
+	    if (p > start) {
+		int k = (int)(p - start);
+		while (buf->length + k + 1 >= buf->area_size)
+		    Strgrow(buf);
+		if (pre) {
+		    memcpy(&buf->ptr[buf->length], start, k);
+		    buf->length += k;
+		}
+		else {
+		    char *s = start;
+		    while (s < p) {
+			buf->ptr[buf->length++] = IS_SPACE(*s) ? ' ' : *s;
+			s++;
+		    }
+		}
+		buf->ptr[buf->length] = '\0';
+		if (*p == '\0') {
+		    *instr = p;
+		    return 1;
+		}
+		p--;
+		continue;
+	    }
+	}
+
 	/* Drop Unicode soft hyphen */
 	if (*(unsigned char *)p == 0210
 	    && *(unsigned char *)(p + 1) == 0200
