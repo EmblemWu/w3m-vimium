@@ -890,7 +890,22 @@ store_dns_cache(const char *host, struct addrinfo *res0)
 	if (fast_dns_count < DNS_CACHE_MAX) {
 	    idx = fast_dns_count++;
 	} else {
-	    idx = rand() % DNS_CACHE_MAX;
+	    time_t now = time(NULL);
+	    time_t oldest_expire = (time_t)0x7fffffff;
+	    int best_idx = -1;
+	    for (i = 0; i < fast_dns_count; i++) {
+		if (fast_dns_cache[i].in_flight)
+		    continue;
+		if (now >= fast_dns_cache[i].expire) {
+		    best_idx = i;
+		    break;
+		}
+		if (fast_dns_cache[i].expire < oldest_expire) {
+		    oldest_expire = fast_dns_cache[i].expire;
+		    best_idx = i;
+		}
+	    }
+	    idx = (best_idx >= 0) ? best_idx : (rand() % DNS_CACHE_MAX);
 	}
 	strncpy(fast_dns_cache[idx].host, host, sizeof(fast_dns_cache[idx].host) - 1);
 	fast_dns_cache[idx].host[sizeof(fast_dns_cache[idx].host) - 1] = '\0';
@@ -974,7 +989,26 @@ prefetch_dns(const char *host, int port)
 	if (fast_dns_count < DNS_CACHE_MAX) {
 	    idx = fast_dns_count++;
 	} else {
-	    idx = rand() % DNS_CACHE_MAX;
+	    time_t oldest_expire = (time_t)0x7fffffff;
+	    int best_idx = -1;
+	    for (i = 0; i < fast_dns_count; i++) {
+		if (fast_dns_cache[i].in_flight)
+		    continue;
+		if (now >= fast_dns_cache[i].expire) {
+		    best_idx = i;
+		    break;
+		}
+		if (fast_dns_cache[i].expire < oldest_expire) {
+		    oldest_expire = fast_dns_cache[i].expire;
+		    best_idx = i;
+		}
+	    }
+	    if (best_idx < 0) {
+		/* All cache slots currently in-flight, avoid evicting */
+		pthread_mutex_unlock(&fast_dns_mutex);
+		return;
+	    }
+	    idx = best_idx;
 	}
 	strncpy(fast_dns_cache[idx].host, host, sizeof(fast_dns_cache[idx].host) - 1);
 	fast_dns_cache[idx].host[sizeof(fast_dns_cache[idx].host) - 1] = '\0';
@@ -1035,6 +1069,12 @@ tune_socket(int sock)
 #ifdef SO_NOSIGPIPE
     setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, (char *)&on, sizeof(on));
 #endif
+    /* Socket read/write timeout: 10 seconds to prevent hangs on stalled network streams */
+    struct timeval tv;
+    tv.tv_sec = 10;
+    tv.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&tv, sizeof(tv));
 }
 
 static int

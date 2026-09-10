@@ -216,7 +216,7 @@ static struct compression_decoder {
 };
 /* *INDENT-ON* */
 
-#define SAVE_BUF_SIZE 1536
+#define SAVE_BUF_SIZE 65536
 
 static MySignalHandler
 KeyAbort(SIGNAL_ARG)
@@ -6639,6 +6639,17 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 	    tbl_mode->pre_mode : obuf->flag;
 	int end_tag = (obuf->table_level >= 0 && tbl_mode) ?
 	    tbl_mode->end_tag : obuf->end_tag;
+
+	/* Fast-path: Skip script and style content directly to the next '<' delimiter */
+	if ((pre_mode & (RB_SCRIPT | RB_STYLE)) && obuf->status == R_ST_NORMAL && *line != '<') {
+	    char *next_lt = strchr(line, '<');
+	    if (next_lt) {
+		line = next_lt;
+	    }
+	    else {
+		break;
+	    }
+	}
 
 	if (*line == '<' || obuf->status != R_ST_NORMAL) {
 	    /* 

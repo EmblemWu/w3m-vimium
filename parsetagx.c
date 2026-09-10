@@ -193,6 +193,17 @@ parse_tag(char **s, int internal)
 	while (*q && *q != '=' && !IS_SPACE(*q) && *q != '>')
 	    q++;
 	SKIP_BLANKS(q);
+	int attr_slot = -1;
+	for (i = 0; i < nattr; i++) {
+	    if (tag->attrid[i] == ATTR_UNKNOWN &&
+		strcmp(AttrMAP[TagMAP[tag_id].accept_attribute[i]].name,
+		       attrname) == 0) {
+		attr_id = TagMAP[tag_id].accept_attribute[i];
+		attr_slot = i;
+		break;
+	    }
+	}
+
 	if (*q == '=') {
 	    /* get value */
 	    q++;
@@ -225,32 +236,25 @@ parse_tag(char **s, int internal)
 	    if (has_quote && !tag->need_reconstruct)
 		tag->need_reconstruct = TRUE;
 
-	    if (!has_newline) {
-		val_str = allocStr(val_start, val_len);
-	    } else {
-		char *dst = NewAtom_N(char, val_len + 1);
-		char *src = val_start;
-		char *dp = dst;
-		int k;
-		for (k = 0; k < val_len; k++, src++) {
-		    if (*src != '\n')
-			*dp++ = *src;
+	    if (attr_slot >= 0) {
+		if (!has_newline) {
+		    val_str = allocStr(val_start, val_len);
+		} else {
+		    char *dst = NewAtom_N(char, val_len + 1);
+		    char *src = val_start;
+		    char *dp = dst;
+		    int k;
+		    for (k = 0; k < val_len; k++, src++) {
+			if (*src != '\n')
+			    *dp++ = *src;
+		    }
+		    *dp = '\0';
+		    val_str = dst;
 		}
-		*dp = '\0';
-		val_str = dst;
 	    }
 	}
 
-	for (i = 0; i < nattr; i++) {
-	    if (tag->attrid[i] == ATTR_UNKNOWN &&
-		strcmp(AttrMAP[TagMAP[tag_id].accept_attribute[i]].name,
-		       attrname) == 0) {
-		attr_id = TagMAP[tag_id].accept_attribute[i];
-		break;
-	    }
-	}
-
-	if (i != nattr) {
+	if (attr_slot >= 0) {
 	    if (!internal &&
 		((AttrMAP[attr_id].flag & AFLG_INT) ||
 		 (val_str && AttrMAP[attr_id].vtype == VTYPE_METHOD &&
@@ -258,11 +262,11 @@ parse_tag(char **s, int internal)
 		tag->need_reconstruct = TRUE;
 		continue;
 	    }
-	    tag->attrid[i] = attr_id;
+	    tag->attrid[attr_slot] = attr_id;
 	    if (val_str)
-		tag->value[i] = html_unquote(val_str);
+		tag->value[attr_slot] = html_unquote(val_str);
 	    else
-		tag->value[i] = NULL;
+		tag->value[attr_slot] = NULL;
 	}
 	else {
 	    tag->need_reconstruct = TRUE;

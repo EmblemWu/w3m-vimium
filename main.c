@@ -9567,6 +9567,9 @@ set_buffer_environ(Buffer *buf)
 	if (a) {
 	    parseURL2(a->url, &pu, baseURL(buf));
 	    set_environ("W3M_CURRENT_LINK", parsedURL2Str(&pu)->ptr);
+	    if (pu.host && *pu.host && (pu.scheme == SCM_HTTP || pu.scheme == SCM_HTTPS)) {
+		prefetch_dns(pu.host, pu.port ? pu.port : (pu.scheme == SCM_HTTPS ? 443 : 80));
+	    }
 	}
 	else
 	    set_environ("W3M_CURRENT_LINK", "");

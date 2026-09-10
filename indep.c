@@ -404,8 +404,9 @@ cleanup_line(Str s, int mode)
 {
     if (s->length >= 2 &&
 	s->ptr[s->length - 2] == '\r' && s->ptr[s->length - 1] == '\n') {
-	Strshrink(s, 2);
-	Strcat_char(s, '\n');
+	s->ptr[s->length - 2] = '\n';
+	s->ptr[s->length - 1] = '\0';
+	s->length--;
     }
     else if (Strlastchar(s) == '\r')
 	s->ptr[s->length - 1] = '\n';
