@@ -759,67 +759,85 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 		refresh();
 	    }
 	}
-	if (!strncasecmp(lineBuf2->ptr, "connection:", 11) || !strncasecmp(lineBuf2->ptr, "proxy-connection:", 17)) {
-	    char *cp = strchr(lineBuf2->ptr, ':');
-	    if (cp) {
-		cp++;
-		while (IS_SPACE(*cp))
+	char c0 = TOLOWER((unsigned char)lineBuf2->ptr[0]);
+	if (c0 == 'c') {
+	    if (!strncasecmp(lineBuf2->ptr, "connection:", 11)) {
+		char *cp = strchr(lineBuf2->ptr, ':');
+		if (cp) {
 		    cp++;
-		if (strcasestr(cp, "close")) {
-		    ISset_reusable(uf->stream, 0);
-		}
-	    }
-	}
-	else if (!strncasecmp(lineBuf2->ptr, "content-length:", 15)) {
-	    p = lineBuf2->ptr + 15;
-	    while (IS_SPACE(*p))
-		p++;
-	    if (http_response_code != 204 && http_response_code != 304 &&
-		!(http_response_code >= 100 && http_response_code < 200))
-		uf->content_length = strtoclen(p);
-	}
-	else if (!strncasecmp(lineBuf2->ptr, "transfer-encoding:", 18)) {
-	    p = lineBuf2->ptr + 18;
-	    while (IS_SPACE(*p))
-		p++;
-	    if (strcasestr(p, "chunked"))
-		uf->is_chunked = 1;
-	}
-	else if (!strncasecmp(lineBuf2->ptr, "content-transfer-encoding:", 26)) {
-	    p = lineBuf2->ptr + 26;
-	    while (IS_SPACE(*p))
-		p++;
-	    if (!strncasecmp(p, "base64", 6))
-		uf->encoding = ENC_BASE64;
-	    else if (!strncasecmp(p, "quoted-printable", 16))
-		uf->encoding = ENC_QUOTE;
-	    else if (!strncasecmp(p, "uuencode", 8) ||
-		     !strncasecmp(p, "x-uuencode", 10))
-		uf->encoding = ENC_UUENCODE;
-	    else
-		uf->encoding = ENC_7BIT;
-	}
-	else if (!strncasecmp(lineBuf2->ptr, "content-encoding:", 17)) {
-	    struct compression_decoder *d;
-	    p = lineBuf2->ptr + 17;
-	    while (IS_SPACE(*p))
-		p++;
-	    uf->compression = CMP_NOCOMPRESS;
-	    for (d = compression_decoders; d->type != CMP_NOCOMPRESS; d++) {
-		char **e;
-		for (e = d->encodings; *e != NULL; e++) {
-		    if (strncasecmp(p, *e, strlen(*e)) == 0) {
-			uf->compression = d->type;
-			break;
+		    while (IS_SPACE(*cp))
+			cp++;
+		    if (strcasestr(cp, "close")) {
+			ISset_reusable(uf->stream, 0);
 		    }
 		}
-		if (uf->compression != CMP_NOCOMPRESS)
-		    break;
 	    }
-	    uf->content_encoding = uf->compression;
+	    else if (!strncasecmp(lineBuf2->ptr, "content-length:", 15)) {
+		p = lineBuf2->ptr + 15;
+		while (IS_SPACE(*p))
+		    p++;
+		if (http_response_code != 204 && http_response_code != 304 &&
+		    !(http_response_code >= 100 && http_response_code < 200))
+		    uf->content_length = strtoclen(p);
+	    }
+	    else if (!strncasecmp(lineBuf2->ptr, "content-transfer-encoding:", 26)) {
+		p = lineBuf2->ptr + 26;
+		while (IS_SPACE(*p))
+		    p++;
+		if (!strncasecmp(p, "base64", 6))
+		    uf->encoding = ENC_BASE64;
+		else if (!strncasecmp(p, "quoted-printable", 16))
+		    uf->encoding = ENC_QUOTE;
+		else if (!strncasecmp(p, "uuencode", 8) ||
+			 !strncasecmp(p, "x-uuencode", 10))
+		    uf->encoding = ENC_UUENCODE;
+		else
+		    uf->encoding = ENC_7BIT;
+	    }
+	    else if (!strncasecmp(lineBuf2->ptr, "content-encoding:", 17)) {
+		struct compression_decoder *d;
+		p = lineBuf2->ptr + 17;
+		while (IS_SPACE(*p))
+		    p++;
+		uf->compression = CMP_NOCOMPRESS;
+		for (d = compression_decoders; d->type != CMP_NOCOMPRESS; d++) {
+		    char **e;
+		    for (e = d->encodings; *e != NULL; e++) {
+			if (strncasecmp(p, *e, strlen(*e)) == 0) {
+			    uf->compression = d->type;
+			    break;
+			}
+		    }
+		    if (uf->compression != CMP_NOCOMPRESS)
+			break;
+		}
+		uf->content_encoding = uf->compression;
+	    }
+	}
+	else if (c0 == 'p') {
+	    if (!strncasecmp(lineBuf2->ptr, "proxy-connection:", 17)) {
+		char *cp = strchr(lineBuf2->ptr, ':');
+		if (cp) {
+		    cp++;
+		    while (IS_SPACE(*cp))
+			cp++;
+		    if (strcasestr(cp, "close")) {
+			ISset_reusable(uf->stream, 0);
+		    }
+		}
+	    }
+	}
+	else if (c0 == 't') {
+	    if (!strncasecmp(lineBuf2->ptr, "transfer-encoding:", 18)) {
+		p = lineBuf2->ptr + 18;
+		while (IS_SPACE(*p))
+		    p++;
+		if (strcasestr(p, "chunked"))
+		    uf->is_chunked = 1;
+	    }
 	}
 #ifdef USE_COOKIE
-	else if (use_cookie && accept_cookie &&
+	else if (c0 == 's' && use_cookie && accept_cookie &&
 		 pu && check_cookie_accept_domain(pu->host) &&
 		 (!strncasecmp(lineBuf2->ptr, "Set-Cookie:", 11) ||
 		  !strncasecmp(lineBuf2->ptr, "Set-Cookie2:", 12))) {
@@ -958,21 +976,23 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 	    }
 	}
 #endif				/* USE_COOKIE */
-	else if (!strncasecmp(lineBuf2->ptr, "w3m-control:", 12) &&
+	else if (c0 == 'w') {
+	    if (!strncasecmp(lineBuf2->ptr, "w3m-control:", 12) &&
 		 uf->scheme == SCM_LOCAL_CGI) {
-	    Str funcname = Strnew();
-	    int f;
+		Str funcname = Strnew();
+		int f;
 
-	    p = lineBuf2->ptr + 12;
-	    SKIP_BLANKS(p);
-	    while (*p && !IS_SPACE(*p))
-		Strcat_char(funcname, *(p++));
-	    SKIP_BLANKS(p);
-	    f = getFuncList(funcname->ptr);
-	    if (f >= 0) {
-		tmp = Strnew_charp(p);
-		Strchop(tmp);
-		pushEvent(f, tmp->ptr);
+		p = lineBuf2->ptr + 12;
+		SKIP_BLANKS(p);
+		while (*p && !IS_SPACE(*p))
+		    Strcat_char(funcname, *(p++));
+		SKIP_BLANKS(p);
+		f = getFuncList(funcname->ptr);
+		if (f >= 0) {
+		    tmp = Strnew_charp(p);
+		    Strchop(tmp);
+		    pushEvent(f, tmp->ptr);
+		}
 	    }
 	}
 	if (headerlist)
@@ -1012,12 +1032,15 @@ checkHeader(Buffer *buf, char *field)
     int len;
     TextListItem *i;
     char *p;
+    char f0;
 
-    if (buf == NULL || field == NULL || buf->document_header == NULL)
+    if (buf == NULL || field == NULL || *field == '\0' || buf->document_header == NULL)
 	return NULL;
+    f0 = TOLOWER((unsigned char)field[0]);
     len = strlen(field);
     for (i = buf->document_header->first; i != NULL; i = i->next) {
-	if (!strncasecmp(i->ptr, field, len)) {
+	if (i->ptr && TOLOWER((unsigned char)i->ptr[0]) == f0 &&
+	    !strncasecmp(i->ptr, field, len)) {
 	    p = i->ptr + len;
 	    return remove_space(p);
 	}

@@ -47,7 +47,7 @@ DEFS = -DHAVE_CONFIG_H -DAUXBIN_DIR=\"$(AUXBIN_DIR)\" \
 	-DETC_DIR=\"$(ETC_DIR)\" -DCONF_DIR=\"$(CONF_DIR)\" \
 	-DRC_DIR=\"$(RC_DIR)\" \
         -DLOCALEDIR=\"$(localedir)\"
-LDFLAGS =  -L/opt/homebrew/lib
+LDFLAGS = -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -L/opt/homebrew/lib
 LIBS = -framework ImageIO -framework CoreGraphics -framework CoreFoundation -framework Cocoa
 GC_LIBS = -L/opt/homebrew/lib -lgc
 EXT_LIBS = -L. -lindep  $(GC_LIBS)

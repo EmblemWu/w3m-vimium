@@ -555,6 +555,10 @@ openSSLHandle(int sock, char *hostname, char **p_cert)
 #if (SSLEAY_VERSION_NUMBER >= 0x00908070) && !defined(OPENSSL_NO_TLSEXT)
     SSL_set_tlsext_host_name(handle,hostname);
 #endif				/* (SSLEAY_VERSION_NUMBER >= 0x00908070) && !defined(OPENSSL_NO_TLSEXT) */
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+    /* ALPN: negotiate http/1.1 explicitly to eliminate server protocol fallback latency */
+    SSL_set_alpn_protos(handle, (const unsigned char *)"\x08http/1.1", 9);
+#endif
     SSL_SESSION *cached_session = lookup_ssl_session(hostname, 443);
     if (cached_session) {
 	SSL_set_session(handle, cached_session);
@@ -668,7 +672,7 @@ checkout_http_connection(int scheme, const char *host, int port, int *out_sock, 
 	return 0;
 
     pthread_mutex_lock(&http_conn_pool_mutex);
-    for (i = 0; i < http_conn_pool_count; i++) {
+    for (i = http_conn_pool_count - 1; i >= 0; i--) {
 	if (http_conn_pool[i].sock >= 0 &&
 	    !http_conn_pool[i].in_use &&
 	    http_conn_pool[i].scheme == scheme &&
@@ -694,39 +698,16 @@ checkout_http_connection(int scheme, const char *host, int port, int *out_sock, 
 	    pfd.revents = 0;
 	    int ret = poll(&pfd, 1, 0);
 	    if (ret > 0) {
-		if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-		    close(http_conn_pool[i].sock);
+		/* Any event on an idle socket (remote close, hangup, error, or unconsumed dirty data)
+		 * indicates an unusable or out-of-sync connection. Discard it. */
+		close(http_conn_pool[i].sock);
 #ifdef USE_SSL
-		    if (http_conn_pool[i].ssl)
-			SSL_free(http_conn_pool[i].ssl);
-		    http_conn_pool[i].ssl = NULL;
+		if (http_conn_pool[i].ssl)
+		    SSL_free(http_conn_pool[i].ssl);
+		http_conn_pool[i].ssl = NULL;
 #endif
-		    http_conn_pool[i].sock = -1;
-		    continue;
-		}
-#ifdef USE_SSL
-		if (http_conn_pool[i].ssl) {
-		    char peek_byte;
-		    int n = SSL_peek(http_conn_pool[i].ssl, &peek_byte, 1);
-		    if (n <= 0) {
-			close(http_conn_pool[i].sock);
-			SSL_free(http_conn_pool[i].ssl);
-			http_conn_pool[i].ssl = NULL;
-			http_conn_pool[i].sock = -1;
-			continue;
-		    }
-		}
-		else
-#endif
-		{
-		    char peek_byte;
-		    int n = recv(http_conn_pool[i].sock, &peek_byte, 1, MSG_PEEK | MSG_DONTWAIT);
-		    if (n <= 0) {
-			close(http_conn_pool[i].sock);
-			http_conn_pool[i].sock = -1;
-			continue;
-		    }
-		}
+		http_conn_pool[i].sock = -1;
+		continue;
 	    }
 	    else if (ret < 0) {
 		close(http_conn_pool[i].sock);
@@ -738,6 +719,15 @@ checkout_http_connection(int scheme, const char *host, int port, int *out_sock, 
 		http_conn_pool[i].sock = -1;
 		continue;
 	    }
+#ifdef USE_SSL
+	    if (http_conn_pool[i].ssl && SSL_pending(http_conn_pool[i].ssl) > 0) {
+		close(http_conn_pool[i].sock);
+		SSL_free(http_conn_pool[i].ssl);
+		http_conn_pool[i].ssl = NULL;
+		http_conn_pool[i].sock = -1;
+		continue;
+	    }
+#endif
 
 	    /* Live, healthy socket found! */
 	    http_conn_pool[i].in_use = 1;
@@ -1042,8 +1032,8 @@ static void
 tune_socket(int sock)
 {
     int on = 1;
-    int rcvbuf = 131072; /* 128KB */
-    int sndbuf = 65536;  /* 64KB */
+    int rcvbuf = 262144; /* 256KB */
+    int sndbuf = 131072; /* 128KB */
     int tos = 0x10;      /* IPTOS_LOWDELAY: low packet latency for interactive HTTP */
     if (sock < 0) return;
     setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof(on));
@@ -1184,7 +1174,8 @@ openSocket(char *const hostname,
 	    else if (dest_addr.ss_family == AF_INET6) {
 		((struct sockaddr_in6 *)&dest_addr)->sin6_port = htons(port_num);
 	    }
-	    if (tcp_connect_with_timeout(sock, (struct sockaddr *)&dest_addr, cached_dns.addrs[a].addrlen, 3000) == 0) {
+	    int conn_timeout = (cached_dns.naddr > 1 && a < cached_dns.naddr - 1) ? 1200 : 3000;
+	    if (tcp_connect_with_timeout(sock, (struct sockaddr *)&dest_addr, cached_dns.addrs[a].addrlen, conn_timeout) == 0) {
 		tune_socket(sock);
 		TRAP_OFF;
 		return sock;
@@ -1230,7 +1221,8 @@ openSocket(char *const hostname,
 	    if (sock < 0) {
 		continue;
 	    }
-	    if (tcp_connect_with_timeout(sock, res->ai_addr, res->ai_addrlen, 5000) < 0) {
+	    int conn_timeout = (res->ai_next != NULL) ? 1500 : 4000;
+	    if (tcp_connect_with_timeout(sock, res->ai_addr, res->ai_addrlen, conn_timeout) < 0) {
 		close(sock);
 		sock = -1;
 		continue;

@@ -585,16 +585,23 @@ html_quote(char *str)
     Str tmp = NULL;
     char *p, *q;
 
-    for (p = str; *p; p++) {
+    if (!str)
+	return str;
+
+    for (p = str; *p; ) {
 	q = html_quote_char(*p);
 	if (q) {
 	    if (tmp == NULL)
 		tmp = Strnew_charp_n(str, (int)(p - str));
 	    Strcat_charp(tmp, q);
+	    p++;
 	}
 	else {
+	    char *start = p;
+	    while (*p && !html_quote_char(*p))
+		p++;
 	    if (tmp)
-		Strcat_char(tmp, *p);
+		Strcat_charp_n(tmp, start, (int)(p - start));
 	}
     }
     if (tmp)
@@ -608,23 +615,27 @@ html_unquote(char *str)
     Str tmp = NULL;
     char *p, *q;
 
-    for (p = str; *p;) {
+    if (!str)
+	return str;
+    p = strchr(str, '&');
+    if (!p)
+	return str;
+
+    tmp = Strnew_charp_n(str, (int)(p - str));
+    while (*p) {
 	if (*p == '&') {
-	    if (tmp == NULL)
-		tmp = Strnew_charp_n(str, (int)(p - str));
 	    q = getescapecmd(&p);
 	    Strcat_charp(tmp, q);
 	}
 	else {
-	    if (tmp)
-		Strcat_char(tmp, *p);
-	    p++;
+	    char *start = p;
+	    while (*p && *p != '&')
+		p++;
+	    Strcat_charp_n(tmp, start, (int)(p - start));
 	}
     }
 
-    if (tmp)
-	return tmp->ptr;
-    return str;
+    return tmp->ptr;
 }
 
 static char xdigit[0x10] = "0123456789ABCDEF";

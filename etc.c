@@ -869,6 +869,84 @@ read_token(Str buf, char **instr, int *status, int pre, int append)
 		continue;
 	    }
 	}
+	else if (*status == R_ST_DQUOTE) {
+	    char *start = p;
+	    while (*p && *p != '"')
+		p++;
+	    if (p > start) {
+		int k = (int)(p - start);
+		while (buf->length + k + 1 >= buf->area_size)
+		    Strgrow(buf);
+		memcpy(&buf->ptr[buf->length], start, k);
+		buf->length += k;
+		buf->ptr[buf->length] = '\0';
+		if (*p == '\0') {
+		    *instr = p;
+		    return 1;
+		}
+		p--;
+		continue;
+	    }
+	}
+	else if (*status == R_ST_QUOTE) {
+	    char *start = p;
+	    while (*p && *p != '\'')
+		p++;
+	    if (p > start) {
+		int k = (int)(p - start);
+		while (buf->length + k + 1 >= buf->area_size)
+		    Strgrow(buf);
+		memcpy(&buf->ptr[buf->length], start, k);
+		buf->length += k;
+		buf->ptr[buf->length] = '\0';
+		if (*p == '\0') {
+		    *instr = p;
+		    return 1;
+		}
+		p--;
+		continue;
+	    }
+	}
+	else if (*status == R_ST_VALUE) {
+	    char *start = p;
+	    while (*p && *p != '>' && !IS_SPACE(*p))
+		p++;
+	    if (p > start) {
+		int k = (int)(p - start);
+		while (buf->length + k + 1 >= buf->area_size)
+		    Strgrow(buf);
+		memcpy(&buf->ptr[buf->length], start, k);
+		buf->length += k;
+		buf->ptr[buf->length] = '\0';
+		if (*p == '\0') {
+		    *instr = p;
+		    return 1;
+		}
+		p--;
+		continue;
+	    }
+	}
+	else if (*status == R_ST_CMNT) {
+	    char *start = p;
+	    while (*p && *p != '-')
+		p++;
+	    if (p > start) {
+		if (pre) {
+		    int k = (int)(p - start);
+		    while (buf->length + k + 1 >= buf->area_size)
+			Strgrow(buf);
+		    memcpy(&buf->ptr[buf->length], start, k);
+		    buf->length += k;
+		    buf->ptr[buf->length] = '\0';
+		}
+		if (*p == '\0') {
+		    *instr = p;
+		    return 1;
+		}
+		p--;
+		continue;
+	    }
+	}
 
 	/* Drop Unicode soft hyphen */
 	if (*(unsigned char *)p == 0210
