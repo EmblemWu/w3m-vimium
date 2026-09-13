@@ -722,6 +722,7 @@ struct html_feed_environ {
     TextLineList *buf;
     FILE *f;
     Str tagbuf;
+    Str tokbuf;
     int limit;
     int maxlimit;
     struct environment *envs;

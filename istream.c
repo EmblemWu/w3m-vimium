@@ -1213,6 +1213,17 @@ chunked_stream_close(struct chunked_handle *handle)
 {
     if (handle) {
 	if (handle->is) {
+	    if (handle->state != CHUNK_STATE_EOS) {
+		/* Fast-drain small remaining chunked data (<=32KB) so the HTTP persistent connection can be safely reused */
+		char drain_buf[4096];
+		int drained = 0;
+		while (handle->state != CHUNK_STATE_EOS && handle->state != CHUNK_STATE_ERROR && drained < 32768) {
+		    int d = chunked_stream_read(handle, drain_buf, sizeof(drain_buf));
+		    if (d <= 0)
+			break;
+		    drained += d;
+		}
+	    }
 	    if (handle->state != CHUNK_STATE_EOS)
 		ISset_reusable(handle->is, 0);
 	    ISclose(handle->is);

@@ -6645,7 +6645,7 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
     }
 #endif
 
-    tokbuf = Strnew();
+    tokbuf = h_env->tokbuf;
 
   table_start:
     if (obuf->table_level >= 0) {
@@ -7311,6 +7311,7 @@ init_henv(struct html_feed_environ *h_env, struct readbuffer *obuf,
     h_env->f = NULL;
     h_env->obuf = obuf;
     h_env->tagbuf = Strnew();
+    h_env->tokbuf = Strnew();
     h_env->limit = limit;
     h_env->maxlimit = 0;
     h_env->envs = envs;

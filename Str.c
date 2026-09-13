@@ -251,6 +251,28 @@ Strcat_charp_n(Str x, const char *y, int n)
 }
 
 void
+Str_reserve(Str x, int needed)
+{
+    if (x->length + needed + 1 >= x->area_size) {
+	int newsize = x->area_size;
+	if (newsize < INITIAL_STR_SIZE)
+	    newsize = INITIAL_STR_SIZE;
+	while (x->length + needed + 1 >= newsize) {
+	    if (newsize < 8192)
+		newsize *= 2;
+	    else
+		newsize += newsize / 2;
+	}
+	if (newsize > STR_SIZE_MAX)
+	    newsize = STR_SIZE_MAX;
+	x->ptr = GC_REALLOC(x->ptr, newsize);
+	if (x->ptr == NULL)
+	    exit(1);
+	x->area_size = newsize;
+    }
+}
+
+void
 Strcat(Str x, Str y)
 {
     STR_LENGTH_CHECK(y);

@@ -410,7 +410,7 @@ invalidate_ssl_session(const char *host, int port)
 }
 
 static SSL *
-openSSLHandle(int sock, char *hostname, char **p_cert)
+openSSLHandle(int sock, char *hostname, int port, char **p_cert)
 {
     SSL *handle = NULL;
     static char *old_ssl_forbid_method = NULL;
@@ -496,6 +496,9 @@ openSSLHandle(int sock, char *hostname, char **p_cert)
 #ifdef SSL_OP_NO_COMPRESSION
 	option |= SSL_OP_NO_COMPRESSION;
 #endif
+#ifdef SSL_OP_IGNORE_UNEXPECTED_EOF
+	option |= SSL_OP_IGNORE_UNEXPECTED_EOF;
+#endif
 	SSL_CTX_set_options(ssl_ctx, option);
 	SSL_CTX_set_session_cache_mode(ssl_ctx, SSL_SESS_CACHE_CLIENT);
 
@@ -559,14 +562,15 @@ openSSLHandle(int sock, char *hostname, char **p_cert)
     /* ALPN: negotiate http/1.1 explicitly to eliminate server protocol fallback latency */
     SSL_set_alpn_protos(handle, (const unsigned char *)"\x08http/1.1", 9);
 #endif
-    SSL_SESSION *cached_session = lookup_ssl_session(hostname, 443);
+    int target_port = (port > 0) ? port : 443;
+    SSL_SESSION *cached_session = lookup_ssl_session(hostname, target_port);
     if (cached_session) {
 	SSL_set_session(handle, cached_session);
     }
     if (SSL_connect(handle) > 0) {
 	SSL_SESSION *new_session = SSL_get1_session(handle);
 	if (new_session) {
-	    store_ssl_session(hostname, 443, new_session);
+	    store_ssl_session(hostname, target_port, new_session);
 	}
 	Str serv_cert = ssl_get_certificate(handle, hostname);
 	if (serv_cert) {
@@ -577,7 +581,7 @@ openSSLHandle(int sock, char *hostname, char **p_cert)
 	SSL_free(handle);
 	return NULL;
     }
-    invalidate_ssl_session(hostname, 443);
+    invalidate_ssl_session(hostname, target_port);
   eend:
     close(sock);
     if (handle)
@@ -2018,10 +2022,9 @@ schemeNumToName(int scheme)
     return NULL;
 }
 
-static char *
-otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
+static void
+append_otherinfo(Str s, ParsedURL *target, ParsedURL *current, char *referer)
 {
-    Str s = Strnew_size(512);
     const int *no_referer_ptr;
     int no_referer;
     const char* url_user_agent = query_SCONF_USER_AGENT(target);
@@ -2093,8 +2096,11 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
     if (target->host) {
 	Strcat_charp(s, "Host: ");
 	Strcat_charp(s, target->host);
-	if (target->port != DefaultPort[target->scheme])
-	    Strcat(s, Sprintf(":%d", target->port));
+	if (target->port != DefaultPort[target->scheme]) {
+	    char pbuf[16];
+	    snprintf(pbuf, sizeof(pbuf), ":%d", target->port);
+	    Strcat_charp(s, pbuf);
+	}
 	Strcat_charp(s, "\r\n");
     }
     if (target->is_nocache || NoCache) {
@@ -2145,7 +2151,6 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
 	    Strcat_charp(s, "\r\n");
 	}
     }
-    return s->ptr;
 }
 
 Str
@@ -2201,9 +2206,9 @@ HTTPrequest(ParsedURL *pu, ParsedURL *current, HRequest *hr, TextList *extra)
     Strcat_charp(tmp, HTTPrequestURI(pu, hr)->ptr);
     Strcat_charp(tmp, " HTTP/1.1\r\n");
     if (hr->referer == NO_REFERER)
-	Strcat_charp(tmp, otherinfo(pu, NULL, NULL));
+	append_otherinfo(tmp, pu, NULL, NULL);
     else
-	Strcat_charp(tmp, otherinfo(pu, current, hr->referer));
+	append_otherinfo(tmp, pu, current, hr->referer);
     if (extra != NULL)
 	for (i = extra->first; i != NULL; i = i->next) {
 	    if (strncasecmp(i->ptr, "Authorization:",
@@ -2481,7 +2486,7 @@ openURL(char *url, ParsedURL *pu, ParsedURL *current,
 #ifdef USE_SSL
 	    if (pu->scheme == SCM_HTTPS && *status == HTST_CONNECT) {
 		sock = ssl_socket_of(ouf->stream);
-		if (!(sslh = openSSLHandle(sock, pu->host,
+		if (!(sslh = openSSLHandle(sock, pu->host, pu->port,
 					   &uf.ssl_certificate))) {
 		    *status = HTST_MISSING;
 		    return uf;
@@ -2542,7 +2547,7 @@ openURL(char *url, ParsedURL *pu, ParsedURL *current,
 		}
 #ifdef USE_SSL
 		if (pu->scheme == SCM_HTTPS) {
-		    if (!(sslh = openSSLHandle(sock, pu->host,
+		    if (!(sslh = openSSLHandle(sock, pu->host, pu->port,
 					       &uf.ssl_certificate))) {
 			*status = HTST_MISSING;
 			return uf;
@@ -2565,7 +2570,7 @@ openURL(char *url, ParsedURL *pu, ParsedURL *current,
 		/* Connection closed by server or failed write, retry once with fresh connection */
 		checkin_http_connection(pu->scheme, pu->host, pu->port, sock, sslh, NULL, 0);
 		sock = openSocket(pu->host, schemeNumToName(pu->scheme), pu->port);
-		if (sock >= 0 && (sslh = openSSLHandle(sock, pu->host, &uf.ssl_certificate))) {
+		if (sock >= 0 && (sslh = openSSLHandle(sock, pu->host, pu->port, &uf.ssl_certificate))) {
 		    full_ssl_write(sslh, tmp->ptr, tmp->length);
 		}
 		else {

@@ -847,8 +847,7 @@ read_token(Str buf, char **instr, int *status, int pre, int append)
 		p++;
 	    if (p > start) {
 		int k = (int)(p - start);
-		while (buf->length + k + 1 >= buf->area_size)
-		    Strgrow(buf);
+		Str_reserve(buf, k);
 		if (pre) {
 		    memcpy(&buf->ptr[buf->length], start, k);
 		    buf->length += k;
@@ -875,8 +874,7 @@ read_token(Str buf, char **instr, int *status, int pre, int append)
 		p++;
 	    if (p > start) {
 		int k = (int)(p - start);
-		while (buf->length + k + 1 >= buf->area_size)
-		    Strgrow(buf);
+		Str_reserve(buf, k);
 		memcpy(&buf->ptr[buf->length], start, k);
 		buf->length += k;
 		buf->ptr[buf->length] = '\0';
@@ -894,8 +892,7 @@ read_token(Str buf, char **instr, int *status, int pre, int append)
 		p++;
 	    if (p > start) {
 		int k = (int)(p - start);
-		while (buf->length + k + 1 >= buf->area_size)
-		    Strgrow(buf);
+		Str_reserve(buf, k);
 		memcpy(&buf->ptr[buf->length], start, k);
 		buf->length += k;
 		buf->ptr[buf->length] = '\0';
@@ -913,8 +910,7 @@ read_token(Str buf, char **instr, int *status, int pre, int append)
 		p++;
 	    if (p > start) {
 		int k = (int)(p - start);
-		while (buf->length + k + 1 >= buf->area_size)
-		    Strgrow(buf);
+		Str_reserve(buf, k);
 		memcpy(&buf->ptr[buf->length], start, k);
 		buf->length += k;
 		buf->ptr[buf->length] = '\0';
@@ -933,8 +929,7 @@ read_token(Str buf, char **instr, int *status, int pre, int append)
 	    if (p > start) {
 		if (pre) {
 		    int k = (int)(p - start);
-		    while (buf->length + k + 1 >= buf->area_size)
-			Strgrow(buf);
+		    Str_reserve(buf, k);
 		    memcpy(&buf->ptr[buf->length], start, k);
 		    buf->length += k;
 		    buf->ptr[buf->length] = '\0';

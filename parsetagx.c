@@ -194,13 +194,15 @@ parse_tag(char **s, int internal)
 	    q++;
 	SKIP_BLANKS(q);
 	int attr_slot = -1;
+	char a0 = attrname[0];
 	for (i = 0; i < nattr; i++) {
-	    if (tag->attrid[i] == ATTR_UNKNOWN &&
-		strcmp(AttrMAP[TagMAP[tag_id].accept_attribute[i]].name,
-		       attrname) == 0) {
-		attr_id = TagMAP[tag_id].accept_attribute[i];
-		attr_slot = i;
-		break;
+	    if (tag->attrid[i] == ATTR_UNKNOWN) {
+		const char *mname = AttrMAP[TagMAP[tag_id].accept_attribute[i]].name;
+		if (mname[0] == a0 && strcmp(mname, attrname) == 0) {
+		    attr_id = TagMAP[tag_id].accept_attribute[i];
+		    attr_slot = i;
+		    break;
+		}
 	    }
 	}
 
