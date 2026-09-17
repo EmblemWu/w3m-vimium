@@ -37,11 +37,22 @@ char *
 conv_entity(unsigned int c)
 {
     char b = c & 0xff;
+    static char ascii_char_table[128][2];
+    static int ascii_table_init = 0;
 
     if (c < 0x20)		/* C0 */
 	return " ";
-    if (c < 0x7f)		/* ASCII */
-	return Strnew_charp_n(&b, 1)->ptr;
+    if (c < 0x7f) {		/* ASCII */
+	if (!ascii_table_init) {
+	    int i;
+	    for (i = 0x20; i < 0x7f; i++) {
+		ascii_char_table[i][0] = (char)i;
+		ascii_char_table[i][1] = '\0';
+	    }
+	    ascii_table_init = 1;
+	}
+	return ascii_char_table[c];
+    }
     if (c < 0xa0)		/* DEL, C1 */
 	return " ";
     if (c == 0xa0)

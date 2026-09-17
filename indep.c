@@ -609,6 +609,29 @@ html_quote(char *str)
     return str;
 }
 
+void
+html_quote_to_Str(Str s, const char *str)
+{
+    const char *p, *q;
+
+    if (!s || !str)
+	return;
+
+    for (p = str; *p; ) {
+	q = html_quote_char(*p);
+	if (q) {
+	    Strcat_charp(s, q);
+	    p++;
+	}
+	else {
+	    const char *start = p;
+	    while (*p && !html_quote_char(*p))
+		p++;
+	    Strcat_charp_n(s, start, (int)(p - start));
+	}
+    }
+}
+
 char *
 html_unquote(char *str)
 {

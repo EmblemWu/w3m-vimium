@@ -332,8 +332,11 @@ parsedtag2str(struct parsed_tag *tag)
 	if (tag->attrid[i] != ATTR_UNKNOWN) {
 	    Strcat_char(tagstr, ' ');
 	    Strcat_charp(tagstr, AttrMAP[tag->attrid[i]].name);
-	    if (tag->value[i])
-		Strcat(tagstr, Sprintf("=\"%s\"", html_quote(tag->value[i])));
+	    if (tag->value[i]) {
+		Strcat_charp(tagstr, "=\"");
+		html_quote_to_Str(tagstr, tag->value[i]);
+		Strcat_char(tagstr, '"');
+	    }
 	}
     }
     Strcat_char(tagstr, '>');

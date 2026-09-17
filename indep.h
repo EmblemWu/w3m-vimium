@@ -65,6 +65,7 @@ extern char *remove_space(char *str);
 extern int non_null(char *s);
 extern void cleanup_line(Str s, int mode);
 extern char *html_quote(char *str);
+extern void html_quote_to_Str(Str s, const char *str);
 extern char *html_unquote(char *str);
 extern char *file_quote(char *str);
 extern char *file_unquote(char *str);
