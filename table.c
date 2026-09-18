@@ -3361,7 +3361,7 @@ feed_table1(struct table *tbl, Str tok, struct table_mode *mode, int width)
     char *line;
     if (!tok)
 	return;
-    tokbuf = Strnew();
+    tokbuf = Strnew_size(128);
     status = R_ST_NORMAL;
     line = tok->ptr;
     while (read_token
@@ -3387,7 +3387,7 @@ pushTable(struct table *tbl, struct table *tbl1)
 	    tbl->tables_size = MAX_TABLE_N_LIMIT;
 	tmp = New_N(struct table_in, tbl->tables_size);
 	if (tbl->tables)
-	    bcopy(tbl->tables, tmp, tbl->ntable * sizeof(struct table_in));
+	    memcpy(tmp, tbl->tables, tbl->ntable * sizeof(struct table_in));
 	tbl->tables = tmp;
     }
 

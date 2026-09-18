@@ -672,19 +672,33 @@ char *
 url_quote(char *str)
 {
     Str tmp = NULL;
-    char *p;
+    char *p = str;
 
-    for (p = str; *p; p++) {
+    if (!str)
+	return str;
+
+    while (*p) {
 	if (is_url_quote(*p)) {
 	    if (tmp == NULL)
 		tmp = Strnew_charp_n(str, (int)(p - str));
-	    Strcat_char(tmp, '%');
-	    Strcat_char(tmp, xdigit[((unsigned char)*p >> 4) & 0xF]);
-	    Strcat_char(tmp, xdigit[(unsigned char)*p & 0xF]);
+	    char hex[3];
+	    hex[0] = '%';
+	    hex[1] = xdigit[((unsigned char)*p >> 4) & 0xF];
+	    hex[2] = xdigit[(unsigned char)*p & 0xF];
+	    Strcat_charp_n(tmp, hex, 3);
+	    p++;
 	}
 	else {
-	    if (tmp)
-		Strcat_char(tmp, *p);
+	    if (tmp) {
+		char *start = p;
+		while (*p && !is_url_quote(*p))
+		    p++;
+		Strcat_charp_n(tmp, start, (int)(p - start));
+	    }
+	    else {
+		while (*p && !is_url_quote(*p))
+		    p++;
+	    }
 	}
     }
     if (tmp)
@@ -696,19 +710,33 @@ char *
 file_quote(char *str)
 {
     Str tmp = NULL;
-    char *p;
-    char buf[4];
+    char *p = str;
 
-    for (p = str; *p; p++) {
+    if (!str)
+	return str;
+
+    while (*p) {
 	if (is_file_quote(*p)) {
 	    if (tmp == NULL)
 		tmp = Strnew_charp_n(str, (int)(p - str));
-	    sprintf(buf, "%%%02X", (unsigned char)*p);
-	    Strcat_charp(tmp, buf);
+	    char hex[3];
+	    hex[0] = '%';
+	    hex[1] = xdigit[((unsigned char)*p >> 4) & 0xF];
+	    hex[2] = xdigit[(unsigned char)*p & 0xF];
+	    Strcat_charp_n(tmp, hex, 3);
+	    p++;
 	}
 	else {
-	    if (tmp)
-		Strcat_char(tmp, *p);
+	    if (tmp) {
+		char *start = p;
+		while (*p && !is_file_quote(*p))
+		    p++;
+		Strcat_charp_n(tmp, start, (int)(p - start));
+	    }
+	    else {
+		while (*p && !is_file_quote(*p))
+		    p++;
+	    }
 	}
     }
     if (tmp)
@@ -720,10 +748,13 @@ char *
 file_unquote(char *str)
 {
     Str tmp = NULL;
-    char *p, *q;
+    char *p = str, *q;
     int c;
 
-    for (p = str; *p;) {
+    if (!str)
+	return str;
+
+    while (*p) {
 	if (*p == '%') {
 	    q = p;
 	    c = url_unquote_char(&q);
@@ -736,9 +767,16 @@ file_unquote(char *str)
 		continue;
 	    }
 	}
-	if (tmp)
-	    Strcat_char(tmp, *p);
-	p++;
+	if (tmp) {
+	    char *start = p;
+	    while (*p && *p != '%')
+		p++;
+	    Strcat_charp_n(tmp, start, (int)(p - start));
+	}
+	else {
+	    while (*p && *p != '%')
+		p++;
+	}
     }
     if (tmp)
 	return tmp->ptr;
@@ -749,24 +787,42 @@ Str
 Str_form_quote(Str x)
 {
     Str tmp = NULL;
-    char *p = x->ptr, *ep = x->ptr + x->length;
-    char buf[4];
+    char *p, *ep;
 
-    for (; p < ep; p++) {
+    if (!x)
+	return x;
+
+    p = x->ptr;
+    ep = x->ptr + x->length;
+
+    while (p < ep) {
 	if (*p == ' ') {
 	    if (tmp == NULL)
 		tmp = Strnew_charp_n(x->ptr, (int)(p - x->ptr));
 	    Strcat_char(tmp, '+');
+	    p++;
 	}
 	else if (is_url_unsafe(*p)) {
 	    if (tmp == NULL)
 		tmp = Strnew_charp_n(x->ptr, (int)(p - x->ptr));
-	    sprintf(buf, "%%%02X", (unsigned char)*p);
-	    Strcat_charp(tmp, buf);
+	    char hex[3];
+	    hex[0] = '%';
+	    hex[1] = xdigit[((unsigned char)*p >> 4) & 0xF];
+	    hex[2] = xdigit[(unsigned char)*p & 0xF];
+	    Strcat_charp_n(tmp, hex, 3);
+	    p++;
 	}
 	else {
-	    if (tmp)
-		Strcat_char(tmp, *p);
+	    if (tmp) {
+		char *start = p;
+		while (p < ep && *p != ' ' && !is_url_unsafe(*p))
+		    p++;
+		Strcat_charp_n(tmp, start, (int)(p - start));
+	    }
+	    else {
+		while (p < ep && *p != ' ' && !is_url_unsafe(*p))
+		    p++;
+	    }
 	}
     }
     if (tmp)
@@ -779,10 +835,16 @@ Str
 Str_url_unquote(Str x, int is_form, int safe)
 {
     Str tmp = NULL;
-    char *p = x->ptr, *ep = x->ptr + x->length, *q;
+    char *p, *ep, *q;
     int c;
 
-    for (; p < ep;) {
+    if (!x)
+	return x;
+
+    p = x->ptr;
+    ep = x->ptr + x->length;
+
+    while (p < ep) {
 	if (is_form && *p == '+') {
 	    if (tmp == NULL)
 		tmp = Strnew_charp_n(x->ptr, (int)(p - x->ptr));
@@ -801,9 +863,16 @@ Str_url_unquote(Str x, int is_form, int safe)
 		continue;
 	    }
 	}
-	if (tmp)
-	    Strcat_char(tmp, *p);
-	p++;
+	if (tmp) {
+	    char *start = p;
+	    while (p < ep && (!is_form || *p != '+') && *p != '%')
+		p++;
+	    Strcat_charp_n(tmp, start, (int)(p - start));
+	}
+	else {
+	    while (p < ep && (!is_form || *p != '+') && *p != '%')
+		p++;
+	}
     }
     if (tmp)
 	return tmp;
@@ -814,18 +883,30 @@ char *
 shell_quote(char *str)
 {
     Str tmp = NULL;
-    char *p;
+    char *p = str;
 
-    for (p = str; *p; p++) {
+    if (!str)
+	return str;
+
+    while (*p) {
 	if (is_shell_unsafe(*p)) {
 	    if (tmp == NULL)
 		tmp = Strnew_charp_n(str, (int)(p - str));
 	    Strcat_char(tmp, '\\');
 	    Strcat_char(tmp, *p);
+	    p++;
 	}
 	else {
-	    if (tmp)
-		Strcat_char(tmp, *p);
+	    if (tmp) {
+		char *start = p;
+		while (*p && !is_shell_unsafe(*p))
+		    p++;
+		Strcat_charp_n(tmp, start, (int)(p - start));
+	    }
+	    else {
+		while (*p && !is_shell_unsafe(*p))
+		    p++;
+	    }
 	}
     }
     if (tmp)

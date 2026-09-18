@@ -3158,18 +3158,18 @@ flushline(struct html_feed_environ *h_env, struct readbuffer *obuf, int indent,
 	if (obuf->anchor.hseq > 0)
 	    obuf->anchor.hseq = -obuf->anchor.hseq;
 	tmp = Sprintf("<A HSEQ=\"%d\" HREF=\"", obuf->anchor.hseq);
-	Strcat_charp(tmp, html_quote(obuf->anchor.url));
+	html_quote_to_Str(tmp, obuf->anchor.url);
 	if (obuf->anchor.target) {
 	    Strcat_charp(tmp, "\" TARGET=\"");
-	    Strcat_charp(tmp, html_quote(obuf->anchor.target));
+	    html_quote_to_Str(tmp, obuf->anchor.target);
 	}
 	if (obuf->anchor.referer) {
 	    Strcat_charp(tmp, "\" REFERER=\"");
-	    Strcat_charp(tmp, html_quote(obuf->anchor.referer));
+	    html_quote_to_Str(tmp, obuf->anchor.referer);
 	}
 	if (obuf->anchor.title) {
 	    Strcat_charp(tmp, "\" TITLE=\"");
-	    Strcat_charp(tmp, html_quote(obuf->anchor.title));
+	    html_quote_to_Str(tmp, obuf->anchor.title);
 	}
 	if (obuf->anchor.accesskey) {
 	    char *c = html_quote_char(obuf->anchor.accesskey);
@@ -3184,7 +3184,7 @@ flushline(struct html_feed_environ *h_env, struct readbuffer *obuf, int indent,
     }
     if (!hidden_img && obuf->img_alt) {
 	Str tmp = Strnew_charp("<IMG_ALT SRC=\"");
-	Strcat_charp(tmp, html_quote(obuf->img_alt->ptr));
+	html_quote_to_Str(tmp, obuf->img_alt->ptr);
 	Strcat_charp(tmp, "\">");
 	push_tag(obuf, tmp->ptr, HTML_IMG_ALT);
     }
@@ -3434,9 +3434,9 @@ process_img(struct parsed_tag *tag, int width)
 	    /* Math formula is pure inline text: return immediately as a clean inline span */
 	    tmp = Strnew_size(128);
 	    Strcat_charp(tmp, "<img_alt src=\"");
-	    Strcat_charp(tmp, html_quote(p));
+	    html_quote_to_Str(tmp, p);
 	    Strcat_charp(tmp, "\">");
-	    Strcat_charp(tmp, html_quote(q));
+	    html_quote_to_Str(tmp, q);
 	    Strcat_charp(tmp, "</img_alt>");
 	    return tmp;
 	}
@@ -3519,7 +3519,7 @@ process_img(struct parsed_tag *tag, int width)
 	    Strcat(tmp, tmp2);
 	Strcat(tmp, Sprintf("<input_alt fid=\"%d\" "
 			    "type=hidden name=link value=\"", cur_form_id));
-	Strcat_charp(tmp, html_quote((r2) ? r2 + 1 : r));
+	html_quote_to_Str(tmp, (r2) ? r2 + 1 : r);
 	Strcat(tmp, Sprintf("\"><input_alt hseq=\"%d\" fid=\"%d\" "
 			    "type=submit no_effect=true>",
 			    cur_hseq++, cur_form_id));
@@ -3575,11 +3575,11 @@ process_img(struct parsed_tag *tag, int width)
 	}
 	Strcat_charp(tmp, "<img_alt src=\"");
     }
-    Strcat_charp(tmp, html_quote(p));
+    html_quote_to_Str(tmp, p);
     Strcat_charp(tmp, "\"");
     if (t) {
 	Strcat_charp(tmp, " title=\"");
-	Strcat_charp(tmp, html_quote(t));
+	html_quote_to_Str(tmp, t);
 	Strcat_charp(tmp, "\"");
     }
 #ifdef USE_IMAGE
@@ -3637,7 +3637,7 @@ process_img(struct parsed_tag *tag, int width)
 	    Strcat(tmp, Sprintf(" bottom_margin=%d", bottom));
 	if (r) {
 	    Strcat_charp(tmp, " usemap=\"");
-	    Strcat_charp(tmp, html_quote((r2) ? r2 + 1 : r));
+	    html_quote_to_Str(tmp, (r2) ? r2 + 1 : r);
 	    Strcat_charp(tmp, "\"");
 	}
 	if (ismap)
@@ -3649,7 +3649,7 @@ process_img(struct parsed_tag *tag, int width)
 	q = NULL;
     if (q != NULL) {
 	if (is_math_formula) {
-	    Strcat_charp(tmp, html_quote(q));
+	    html_quote_to_Str(tmp, q);
 	    goto img_end;
 	}
 	n = get_strwidth(q);
@@ -3661,14 +3661,15 @@ process_img(struct parsed_tag *tag, int width)
 		    if (n + get_mcwidth(r) > nw)
 			break;
 		}
-		Strcat_charp(tmp, html_quote(Strnew_charp_n(q, r - q)->ptr));
+		Str sub_q = Strnew_charp_n(q, r - q);
+		html_quote_to_Str(tmp, sub_q->ptr);
 	    }
 	    else
-		Strcat_charp(tmp, html_quote(q));
+		html_quote_to_Str(tmp, q);
 	}
 	else
 #endif
-	    Strcat_charp(tmp, html_quote(q));
+	    html_quote_to_Str(tmp, q);
 	goto img_end;
     }
     if (w > 0 && i > 0) {
@@ -5860,6 +5861,30 @@ HTMLlineproc2body(Buffer *buf, Str (*feed) (), int llimit)
 	str = line->ptr;
 	endp = str + line->length;
 	while (str < endp) {
+	    /* Fast-path: batch scan and copy for plain ASCII text runs */
+	    if (!((effect | ex_efct(ex_effect)) & PC_SYMBOL) &&
+		(unsigned char)*str >= 0x20 && (unsigned char)*str < 0x7f &&
+		*str != '<' && *str != '&') {
+		char *start = str;
+		while (str < endp && (unsigned char)*str >= 0x20 &&
+		       (unsigned char)*str < 0x7f && *str != '<' && *str != '&')
+		    str++;
+		int run_len = (int)(str - start);
+		if (out_size <= pos + run_len) {
+		    while (out_size <= pos + run_len)
+			out_size = out_size * 3 / 2;
+		    outc = New_Reuse(char, outc, out_size);
+		    outp = New_Reuse(Lineprop, outp, out_size);
+		}
+		Lineprop lp = PC_ASCII | effect | ex_efct(ex_effect);
+		memcpy(&outc[pos], start, run_len);
+		int k;
+		for (k = 0; k < run_len; k++)
+		    outp[pos + k] = lp;
+		pos += run_len;
+		if (str >= endp)
+		    break;
+	    }
 	    PSIZE;
 	    mode = get_mctype(str);
 	    if ((effect | ex_efct(ex_effect)) & PC_SYMBOL && *str != '<') {

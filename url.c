@@ -1202,8 +1202,9 @@ openSocket(char *const hostname,
 	hints.ai_family = *af;
 	hints.ai_socktype = SOCK_STREAM;
 	if (remoteport_num != 0) {
-	    Str portbuf = Sprintf("%d", remoteport_num);
-	    error = getaddrinfo(hname, portbuf->ptr, &hints, &res0);
+	    char portbuf[16];
+	    snprintf(portbuf, sizeof(portbuf), "%u", remoteport_num);
+	    error = getaddrinfo(hname, portbuf, &hints, &res0);
 	}
 	else {
 	    error = -1;
@@ -1897,7 +1898,11 @@ _parsedURL2Str(ParsedURL *pu, int pass, int user, int label)
 	}
 	return tmp;
     }
-    tmp = Strnew_charp(scheme_str[pu->scheme]);
+    int est_len = (pu->host ? strlen(pu->host) : 0) +
+		  (pu->file ? strlen(pu->file) : 0) +
+		  (pu->query ? strlen(pu->query) : 0) + 64;
+    tmp = Strnew_size(est_len);
+    Strcat_charp(tmp, scheme_str[pu->scheme]);
     Strcat_char(tmp, ':');
 #ifndef USE_W3MMAILER
     if (pu->scheme == SCM_MAILTO) {
@@ -1930,8 +1935,9 @@ _parsedURL2Str(ParsedURL *pu, int pass, int user, int label)
     if (pu->host) {
 	Strcat_charp(tmp, pu->host);
 	if (pu->port != DefaultPort[pu->scheme]) {
-	    Strcat_char(tmp, ':');
-	    Strcat(tmp, Sprintf("%d", pu->port));
+	    char pbuf[16];
+	    snprintf(pbuf, sizeof(pbuf), ":%d", pu->port);
+	    Strcat_charp(tmp, pbuf);
 	}
     }
     if (
@@ -1997,10 +2003,35 @@ getURLScheme(char **url)
     while (*p && (IS_ALNUM(*p) || *p == '.' || *p == '+' || *p == '-'))
 	p++;
     if (*p == ':') {		/* scheme found */
+	int slen = (int)(p - *url);
+	char *u = *url;
+#ifdef USE_SSL
+	if (slen == 5 && (u[0] == 'h' || u[0] == 'H') &&
+	    strncasecmp(u, "https", 5) == 0) {
+	    *url = p + 1;
+	    return SCM_HTTPS;
+	}
+#endif
+	if (slen == 4 && (u[0] == 'h' || u[0] == 'H') &&
+	    strncasecmp(u, "http", 4) == 0) {
+	    *url = p + 1;
+	    return SCM_HTTP;
+	}
+	if (slen == 4 && (u[0] == 'f' || u[0] == 'F') &&
+	    strncasecmp(u, "file", 4) == 0) {
+	    *url = p + 1;
+	    return SCM_LOCAL;
+	}
+	if (slen == 4 && (u[0] == 'd' || u[0] == 'D') &&
+	    strncasecmp(u, "data", 4) == 0) {
+	    *url = p + 1;
+	    return SCM_DATA;
+	}
+
 	scheme = SCM_UNKNOWN;
 	for (i = 0; (q = schemetable[i].cmdname) != NULL; i++) {
 	    int len = strlen(q);
-	    if (!strncasecmp(q, *url, len) && (*url)[len] == ':') {
+	    if (len == slen && !strncasecmp(q, *url, len) && (*url)[len] == ':') {
 		scheme = schemetable[i].cmd;
 		*url = p + 1;
 		break;
@@ -2156,29 +2187,36 @@ append_otherinfo(Str s, ParsedURL *target, ParsedURL *current, char *referer)
 Str
 HTTPrequestMethod(HRequest *hr)
 {
+    static Str str_get = NULL, str_post = NULL, str_head = NULL, str_connect = NULL;
+    if (!str_get) {
+	str_get = Strnew_charp("GET");
+	str_post = Strnew_charp("POST");
+	str_head = Strnew_charp("HEAD");
+	str_connect = Strnew_charp("CONNECT");
+    }
     switch (hr->command) {
     case HR_COMMAND_CONNECT:
-	return Strnew_charp("CONNECT");
+	return str_connect;
     case HR_COMMAND_POST:
-	return Strnew_charp("POST");
-	break;
+	return str_post;
     case HR_COMMAND_HEAD:
-	return Strnew_charp("HEAD");
-	break;
+	return str_head;
     case HR_COMMAND_GET:
     default:
-	return Strnew_charp("GET");
+	return str_get;
     }
-    return NULL;
+    return str_get;
 }
 
 Str
 HTTPrequestURI(ParsedURL *pu, HRequest *hr)
 {
-    Str tmp = Strnew();
+    Str tmp = Strnew_size(256);
     if (hr->command == HR_COMMAND_CONNECT) {
 	Strcat_charp(tmp, pu->host);
-	Strcat(tmp, Sprintf(":%d", pu->port));
+	char pbuf[16];
+	snprintf(pbuf, sizeof(pbuf), ":%d", pu->port);
+	Strcat_charp(tmp, pbuf);
     }
     else if (hr->flag & HR_FLAG_LOCAL) {
 	Strcat_charp(tmp, pu->file);
@@ -2241,12 +2279,13 @@ HTTPrequest(ParsedURL *pu, ParsedURL *current, HRequest *hr, TextList *extra)
     }
 #endif				/* USE_COOKIE */
     if (hr->command == HR_COMMAND_POST) {
+	char clbuf[64];
+	snprintf(clbuf, sizeof(clbuf), "Content-Length: %ld\r\n", hr->request->length);
 	if (hr->request->enctype == FORM_ENCTYPE_MULTIPART) {
 	    Strcat_charp(tmp, "Content-Type: multipart/form-data; boundary=");
 	    Strcat_charp(tmp, hr->request->boundary);
 	    Strcat_charp(tmp, "\r\n");
-	    Strcat(tmp,
-		   Sprintf("Content-Length: %ld\r\n", hr->request->length));
+	    Strcat_charp(tmp, clbuf);
 	    Strcat_charp(tmp, "\r\n");
 	}
 	else {
@@ -2254,8 +2293,7 @@ HTTPrequest(ParsedURL *pu, ParsedURL *current, HRequest *hr, TextList *extra)
 		Strcat_charp(tmp,
 			     "Content-Type: application/x-www-form-urlencoded\r\n");
 	    }
-	    Strcat(tmp,
-		   Sprintf("Content-Length: %ld\r\n", hr->request->length));
+	    Strcat_charp(tmp, clbuf);
 	    if (header_string)
 		Strcat(tmp, header_string);
 	    Strcat_charp(tmp, "\r\n");
