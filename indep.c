@@ -159,6 +159,11 @@ cleanupName(char *name)
 {
     char *buf, *p, *q;
 
+    if (!name)
+	return NULL;
+    if (strchr(name, '.') == NULL && strstr(name, "//") == NULL)
+	return name;
+
     buf = allocStr(name, -1);
     p = buf;
     q = name;

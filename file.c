@@ -540,11 +540,25 @@ matchattr(char *p, char *attr, int len, Str *value)
 	p += len;
 	SKIP_BLANKS(p);
 	if (value) {
-	    *value = Strnew();
 	    if (*p == '=') {
 		p++;
 		SKIP_BLANKS(p);
 		quoted = 0;
+		char *val_start = p;
+		/* Fast-path: unquoted plain attribute value */
+		if (*p != '"') {
+		    while (!IS_ENDL(*p) && *p != ';') {
+			if (!IS_SPACE(*p))
+			    q = p;
+			p++;
+		    }
+		    if (q)
+			*value = Strnew_charp_n(val_start, (int)(q - val_start + 1));
+		    else
+			*value = Strnew_size(0);
+		    return 1;
+		}
+		*value = Strnew_size(32);
 		while (!IS_ENDL(*p) && (quoted || *p != ';')) {
 		    if (!IS_SPACE(*p))
 			q = p;
@@ -556,6 +570,9 @@ matchattr(char *p, char *attr, int len, Str *value)
 		}
 		if (q)
 		    Strshrink(*value, p - q - 1);
+	    }
+	    else {
+		*value = Strnew_size(0);
 	    }
 	    return 1;
 	}
@@ -859,22 +876,45 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 	    fprintf(stderr, "Set-Cookie: [%s]\n", p);
 #endif				/* DEBUG */
 	    SKIP_BLANKS(p);
-	    while (*p != '=' && !IS_ENDT(*p))
-		Strcat_char(name, *(p++));
-	    Strremovetrailingspaces(name);
+	    char *name_start = p;
+	    char *name_last = NULL;
+	    while (*p != '=' && !IS_ENDT(*p)) {
+		if (!IS_SPACE(*p))
+		    name_last = p;
+		p++;
+	    }
+	    if (name_last)
+		name = Strnew_charp_n(name_start, (int)(name_last - name_start + 1));
+	    else
+		name = Strnew_size(0);
 	    if (*p == '=') {
 		p++;
 		SKIP_BLANKS(p);
 		quoted = 0;
-		while (!IS_ENDL(*p) && (quoted || *p != ';')) {
-		    if (!IS_SPACE(*p))
-			q = p;
-		    if (*p == '"')
-			quoted = (quoted) ? 0 : 1;
-		    Strcat_char(value, *(p++));
+		char *val_start = p;
+		if (*p != '"') {
+		    while (!IS_ENDL(*p) && *p != ';') {
+			if (!IS_SPACE(*p))
+			    q = p;
+			p++;
+		    }
+		    if (q)
+			value = Strnew_charp_n(val_start, (int)(q - val_start + 1));
+		    else
+			value = Strnew_size(0);
 		}
-		if (q)
-		    Strshrink(value, p - q - 1);
+		else {
+		    value = Strnew_size(32);
+		    while (!IS_ENDL(*p) && (quoted || *p != ';')) {
+			if (!IS_SPACE(*p))
+			    q = p;
+			if (*p == '"')
+			    quoted = (quoted) ? 0 : 1;
+			Strcat_char(value, *(p++));
+		    }
+		    if (q)
+			Strshrink(value, p - q - 1);
+		}
 	    }
 	    while (*p == ';') {
 		p++;
@@ -1042,7 +1082,14 @@ checkHeader(Buffer *buf, char *field)
 	if (i->ptr && TOLOWER((unsigned char)i->ptr[0]) == f0 &&
 	    !strncasecmp(i->ptr, field, len)) {
 	    p = i->ptr + len;
-	    return remove_space(p);
+	    while (*p && IS_SPACE(*p))
+		p++;
+	    char *end = p + strlen(p);
+	    while (end > p && IS_SPACE(*(end - 1)))
+		end--;
+	    if (end > p)
+		return Strnew_charp_n(p, (int)(end - p))->ptr;
+	    return p;
 	}
     }
     return NULL;
@@ -1056,9 +1103,10 @@ checkContentType(Buffer *buf)
     p = checkHeader(buf, "Content-Type:");
     if (p == NULL)
 	return NULL;
-    r = Strnew();
+    char *start = p;
     while (*p && *p != ';' && !IS_SPACE(*p))
-	Strcat_char(r, *p++);
+	p++;
+    r = Strnew_charp_n(start, (int)(p - start));
 #ifdef USE_M17N
     if ((p = strcasestr(p, "charset")) != NULL) {
 	p += 7;
@@ -1068,7 +1116,13 @@ checkContentType(Buffer *buf)
 	    SKIP_BLANKS(p);
 	    if (*p == '"')
 		p++;
-	    content_charset = wc_guess_charset(p, 0);
+	    char *c_start = p;
+	    while (*p && *p != '"' && *p != ';' && !IS_SPACE(*p))
+		p++;
+	    if (p > c_start) {
+		Str cs = Strnew_charp_n(c_start, (int)(p - c_start));
+		content_charset = wc_guess_charset(cs->ptr, 0);
+	    }
 	}
     }
 #endif

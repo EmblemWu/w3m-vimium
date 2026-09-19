@@ -1346,28 +1346,56 @@ openSocket(char *const hostname,
 static char *
 copyPath(char *orgpath, int length, int option)
 {
-    Str tmp = Strnew();
-    char ch;
-    while ((ch = *orgpath) != 0 && length != 0) {
-	if (option & COPYPATH_LOWERCASE)
-	    ch = TOLOWER(ch);
-	if (IS_SPACE(ch)) {
-	    switch (option & COPYPATH_SPC_MASK) {
-	    case COPYPATH_SPC_ALLOW:
-		Strcat_char(tmp, ch);
-		break;
-	    case COPYPATH_SPC_IGNORE:
-		/* do nothing */
-		break;
-	    case COPYPATH_SPC_REPLACE:
-		Strcat_charp(tmp, "%20");
-		break;
+    if (!orgpath)
+	return NULL;
+
+    int max_len;
+    if (length < 0) {
+	max_len = strlen(orgpath);
+    } else {
+	max_len = 0;
+	while (max_len < length && orgpath[max_len] != '\0')
+	    max_len++;
+    }
+
+    if (option == COPYPATH_SPC_ALLOW)
+	return allocStr(orgpath, max_len);
+
+    if ((option & COPYPATH_SPC_MASK) != COPYPATH_SPC_REPLACE) {
+	/* Length will be at most max_len. Direct single-allocation pass without Str overhead */
+	char *dst = NewAtom_N(char, max_len + 1);
+	char *d = dst;
+	int to_lower = (option & COPYPATH_LOWERCASE);
+	int spc_mode = (option & COPYPATH_SPC_MASK);
+	int i;
+	for (i = 0; i < max_len; i++) {
+	    char ch = orgpath[i];
+	    if (to_lower)
+		ch = TOLOWER(ch);
+	    if (IS_SPACE(ch)) {
+		if (spc_mode == COPYPATH_SPC_ALLOW)
+		    *d++ = ch;
+		/* COPYPATH_SPC_IGNORE: omit */
+	    } else {
+		*d++ = ch;
 	    }
 	}
+	*d = '\0';
+	return dst;
+    }
+
+    /* COPYPATH_SPC_REPLACE fallback */
+    Str tmp = Strnew_size(max_len * 3 + 1);
+    int to_lower = (option & COPYPATH_LOWERCASE);
+    int i;
+    for (i = 0; i < max_len; i++) {
+	char ch = orgpath[i];
+	if (to_lower)
+	    ch = TOLOWER(ch);
+	if (IS_SPACE(ch))
+	    Strcat_charp(tmp, "%20");
 	else
 	    Strcat_char(tmp, ch);
-	orgpath++;
-	length--;
     }
     return tmp->ptr;
 }
@@ -1515,8 +1543,13 @@ parseURL(char *url, ParsedURL *p_url, ParsedURL *current)
 	/* scheme://host:port/ */
 	p_url->host = copyPath(qq, q - 1 - qq,
 			       COPYPATH_SPC_IGNORE | COPYPATH_LOWERCASE);
-	tmp = Strnew_charp_n(q, p - q);
-	p_url->port = atoi(tmp->ptr);
+	int port = 0;
+	char *pp = q;
+	while (pp < p && IS_DIGIT(*pp)) {
+	    port = port * 10 + (*pp - '0');
+	    pp++;
+	}
+	p_url->port = port;
 	/* *p is one of ['\0', '/', '?', '#'] */
 	break;
     case '@':
@@ -1774,14 +1807,18 @@ parseURL2(char *url, ParsedURL *pu, ParsedURL *current)
 		/* file is relative [process 1] */
 		p = pu->file;
 		if (current->file) {
-		    tmp = Strnew_charp(current->file);
-		    while (tmp->length > 0) {
-			if (Strlastchar(tmp) == '/')
-			    break;
-			Strshrink(tmp, 1);
+		    char *last_slash = strrchr(current->file, '/');
+		    if (last_slash) {
+			int dir_len = (int)(last_slash - current->file + 1);
+			int p_len = strlen(p);
+			tmp = Strnew_size(dir_len + p_len);
+			Strcat_charp_n(tmp, current->file, dir_len);
+			Strcat_charp_n(tmp, p, p_len);
+			pu->file = tmp->ptr;
 		    }
-		    Strcat_charp(tmp, p);
-		    pu->file = tmp->ptr;
+		    else {
+			pu->file = p;
+		    }
 		    relative_uri = TRUE;
 		}
 	    }
