@@ -1804,6 +1804,15 @@ char *
 url_unquote_conv0(char *url)
 #endif
 {
+    if (!url)
+	return NULL;
+    /* Fast-path: if pure ASCII without '%' escape sequences, unquoting and charset conversion are identity */
+    const unsigned char *p = (const unsigned char *)url;
+    while (*p && *p != '%' && *p < 0x80)
+	p++;
+    if (*p == '\0')
+	return url;
+
 #ifdef USE_M17N
     wc_uint8 old_auto_detect = WcOption.auto_detect;
 #endif
@@ -1859,17 +1868,16 @@ static char *monthtbl[] = {
 static int
 get_day(char **s)
 {
-    Str tmp = Strnew();
-    int day;
+    int day = 0;
     char *ss = *s;
 
-    if (!**s)
+    if (!**s || !IS_DIGIT(**s))
 	return -1;
 
-    while (**s && IS_DIGIT(**s))
-	Strcat_char(tmp, *((*s)++));
-
-    day = atoi(tmp->ptr);
+    while (**s && IS_DIGIT(**s)) {
+	day = day * 10 + (**s - '0');
+	(*s)++;
+    }
 
     if (day < 1 || day > 31) {
 	*s = ss;
@@ -1881,52 +1889,64 @@ get_day(char **s)
 static int
 get_month(char **s)
 {
-    Str tmp = Strnew();
-    int mon;
     char *ss = *s;
 
     if (!**s)
 	return -1;
 
-    while (**s && IS_DIGIT(**s))
-	Strcat_char(tmp, *((*s)++));
-    if (tmp->length > 0) {
-	mon = atoi(tmp->ptr);
+    if (IS_DIGIT(**s)) {
+	int mon = 0;
+	while (**s && IS_DIGIT(**s)) {
+	    mon = mon * 10 + (**s - '0');
+	    (*s)++;
+	}
+	if (mon < 1 || mon > 12) {
+	    *s = ss;
+	    return -1;
+	}
+	return mon;
     }
-    else {
-	while (**s && IS_ALPHA(**s))
-	    Strcat_char(tmp, *((*s)++));
-	for (mon = 1; mon <= 12; mon++) {
-	    if (strncmp(tmp->ptr, monthtbl[mon - 1], 3) == 0)
-		break;
+    else if (IS_ALPHA(**s)) {
+	char mname[4];
+	int i = 0;
+	while (**s && IS_ALPHA(**s)) {
+	    if (i < 3)
+		mname[i++] = **s;
+	    (*s)++;
+	}
+	if (i == 3) {
+	    mname[3] = '\0';
+	    for (int mon = 1; mon <= 12; mon++) {
+		if (strncasecmp(mname, monthtbl[mon - 1], 3) == 0)
+		    return mon;
+	    }
 	}
     }
-    if (mon < 1 || mon > 12) {
-	*s = ss;
-	return -1;
-    }
-    return mon;
+    *s = ss;
+    return -1;
 }
 
 static int
 get_year(char **s)
 {
-    Str tmp = Strnew();
-    int year;
     char *ss = *s;
+    int year = 0;
+    int len = 0;
 
-    if (!**s)
+    if (!**s || !IS_DIGIT(**s))
 	return -1;
 
-    while (**s && IS_DIGIT(**s))
-	Strcat_char(tmp, *((*s)++));
-    if (tmp->length != 2 && tmp->length != 4) {
+    while (**s && IS_DIGIT(**s)) {
+	year = year * 10 + (**s - '0');
+	len++;
+	(*s)++;
+    }
+    if (len != 2 && len != 4) {
 	*s = ss;
 	return -1;
     }
 
-    year = atoi(tmp->ptr);
-    if (tmp->length == 2) {
+    if (len == 2) {
 	if (year >= 70)
 	    year += 1900;
 	else
@@ -1938,35 +1958,47 @@ get_year(char **s)
 static int
 get_time(char **s, int *hour, int *min, int *sec)
 {
-    Str tmp = Strnew();
     char *ss = *s;
+    int h = 0, m = 0, sc = 0;
 
-    if (!**s)
+    if (!**s || !IS_DIGIT(**s))
 	return -1;
 
-    while (**s && IS_DIGIT(**s))
-	Strcat_char(tmp, *((*s)++));
+    while (**s && IS_DIGIT(**s)) {
+	h = h * 10 + (**s - '0');
+	(*s)++;
+    }
     if (**s != ':') {
 	*s = ss;
 	return -1;
     }
-    *hour = atoi(tmp->ptr);
+    *hour = h;
 
     (*s)++;
-    Strclear(tmp);
-    while (**s && IS_DIGIT(**s))
-	Strcat_char(tmp, *((*s)++));
+    if (!**s || !IS_DIGIT(**s)) {
+	*s = ss;
+	return -1;
+    }
+    while (**s && IS_DIGIT(**s)) {
+	m = m * 10 + (**s - '0');
+	(*s)++;
+    }
     if (**s != ':') {
 	*s = ss;
 	return -1;
     }
-    *min = atoi(tmp->ptr);
+    *min = m;
 
     (*s)++;
-    Strclear(tmp);
-    while (**s && IS_DIGIT(**s))
-	Strcat_char(tmp, *((*s)++));
-    *sec = atoi(tmp->ptr);
+    if (!**s || !IS_DIGIT(**s)) {
+	*s = ss;
+	return -1;
+    }
+    while (**s && IS_DIGIT(**s)) {
+	sc = sc * 10 + (**s - '0');
+	(*s)++;
+    }
+    *sec = sc;
 
     if (*hour < 0 || *hour >= 24 ||
 	*min < 0 || *min >= 60 || *sec < 0 || *sec >= 60) {
@@ -1979,26 +2011,34 @@ get_time(char **s, int *hour, int *min, int *sec)
 static int
 get_zone(char **s, int *z_hour, int *z_min)
 {
-    Str tmp = Strnew();
-    int zone;
     char *ss = *s;
+    int sign = 1;
+    int len = 0;
+    int zone = 0;
 
     if (!**s)
 	return -1;
 
-    if (**s == '+' || **s == '-')
-	Strcat_char(tmp, *((*s)++));
-    while (**s && IS_DIGIT(**s))
-	Strcat_char(tmp, *((*s)++));
-    if (!(tmp->length == 4 && IS_DIGIT(*ss)) &&
-	!(tmp->length == 5 && (*ss == '+' || *ss == '-'))) {
+    if (**s == '+') {
+	sign = 1;
+	(*s)++;
+    }
+    else if (**s == '-') {
+	sign = -1;
+	(*s)++;
+    }
+    while (**s && IS_DIGIT(**s)) {
+	zone = zone * 10 + (**s - '0');
+	len++;
+	(*s)++;
+    }
+    if (len != 4) {
 	*s = ss;
 	return -1;
     }
 
-    zone = atoi(tmp->ptr);
-    *z_hour = zone / 100;
-    *z_min = zone - (zone / 100) * 100;
+    *z_hour = sign * (zone / 100);
+    *z_min = sign * (zone % 100);
     return 0;
 }
 

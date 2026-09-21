@@ -421,6 +421,7 @@ typedef struct _anchor {
 #ifdef USE_IMAGE
     Image *image;
 #endif
+    char *resolved_url;
 } Anchor;
 
 #define NO_REFERER ((char*)-1)

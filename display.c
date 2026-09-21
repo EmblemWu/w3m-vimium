@@ -693,7 +693,6 @@ redrawLine(Buffer *buf, Line *l, int i)
 #endif
 #ifdef USE_COLOR
     Anchor *a;
-    ParsedURL url;
     int k, vpos = -1;
 #endif
 
@@ -746,11 +745,12 @@ redrawLine(Buffer *buf, Line *l, int i)
 
     for (j = 0; rcol - column < buf->COLS && pos + j < l->len; j += delta) {
 #ifdef USE_COLOR
-	if (useVisitedColor && vpos <= pos + j && !(pr[j] & PE_VISITED)) {
+	if (useVisitedColor && URLHist && URLHist->list && URLHist->list->nitem > 0 &&
+	    vpos <= pos + j && !(pr[j] & PE_VISITED)) {
 	    a = retrieveAnchor(buf->href, l->linenumber, pos + j);
 	    if (a) {
-		parseURL2(a->url, &url, baseURL(buf));
-		if (getHashHist(URLHist, parsedURL2Str(&url)->ptr)) {
+		char *res_url = anchorResolvedURL(a, buf);
+		if (res_url && getHashHist(URLHist, res_url)) {
 		    for (k = a->start.pos; k < a->end.pos; k++)
 			pr[k - pos] |= PE_VISITED;
 		}
@@ -926,7 +926,6 @@ redrawLineRegion(Buffer *buf, Line *l, int i, int bpos, int epos)
     int bcol, ecol;
 #ifdef USE_COLOR
     Anchor *a;
-    ParsedURL url;
     int k, vpos = -1;
 #endif
 
@@ -947,11 +946,12 @@ redrawLineRegion(Buffer *buf, Line *l, int i, int bpos, int epos)
 
     for (j = 0; rcol - column < buf->COLS && pos + j < l->len; j += delta) {
 #ifdef USE_COLOR
-	if (useVisitedColor && vpos <= pos + j && !(pr[j] & PE_VISITED)) {
+	if (useVisitedColor && URLHist && URLHist->list && URLHist->list->nitem > 0 &&
+	    vpos <= pos + j && !(pr[j] & PE_VISITED)) {
 	    a = retrieveAnchor(buf->href, l->linenumber, pos + j);
 	    if (a) {
-		parseURL2(a->url, &url, baseURL(buf));
-		if (getHashHist(URLHist, parsedURL2Str(&url)->ptr)) {
+		char *res_url = anchorResolvedURL(a, buf);
+		if (res_url && getHashHist(URLHist, res_url)) {
 		    for (k = a->start.pos; k < a->end.pos; k++)
 			pr[k - pos] |= PE_VISITED;
 		}

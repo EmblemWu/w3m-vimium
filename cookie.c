@@ -37,6 +37,38 @@ total_dot_number(char *p, char *ep, unsigned int max_count)
 }
 
 
+static int
+is_ipv4_addr(const char *s)
+{
+    int dots = 0;
+    int digits = 0;
+    int val = 0;
+    if (!s || !*s)
+	return 0;
+    while (*s) {
+	if (IS_DIGIT(*s)) {
+	    digits++;
+	    if (digits > 3)
+		return 0;
+	    val = val * 10 + (*s - '0');
+	    if (val > 255)
+		return 0;
+	}
+	else if (*s == '.') {
+	    if (digits == 0)
+		return 0;
+	    dots++;
+	    digits = 0;
+	    val = 0;
+	}
+	else {
+	    return 0;
+	}
+	s++;
+    }
+    return (dots == 3 && digits > 0);
+}
+
 static char *
 domain_match(char *host, char *domain)
 {
@@ -45,9 +77,8 @@ domain_match(char *host, char *domain)
     /* [RFC 2109] s. 2, "domain-match", case 1
      * (both are IP and identical)
      */
-    regexCompile("[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+", 0);
-    m0 = regexMatch(host, -1, 1);
-    m1 = regexMatch(domain, -1, 1);
+    m0 = is_ipv4_addr(host);
+    m1 = is_ipv4_addr(domain);
     if (m0 && m1) {
 	if (strcasecmp(host, domain) == 0)
 	    return host;
@@ -89,23 +120,25 @@ make_portlist(Str port)
 {
     struct portlist *first = NULL, *pl;
     char *p;
-    Str tmp = Strnew();
 
+    if (!port || !port->ptr)
+	return NULL;
     p = port->ptr;
     while (*p) {
 	while (*p && !IS_DIGIT(*p))
 	    p++;
-	Strclear(tmp);
-	while (*p && IS_DIGIT(*p))
-	    Strcat_char(tmp, *(p++));
-	if (tmp->length == 0)
+	if (!*p)
 	    break;
+	int val = 0;
+	while (*p && IS_DIGIT(*p)) {
+	    val = val * 10 + (*p - '0');
+	    p++;
+	}
 	pl = New(struct portlist);
-	pl->port = atoi(tmp->ptr);
+	pl->port = val;
 	pl->next = first;
 	first = pl;
     }
-    Strfree(tmp);
     return first;
 }
 

@@ -1973,8 +1973,19 @@ _parsedURL2Str(ParsedURL *pu, int pass, int user, int label)
 	Strcat_charp(tmp, pu->host);
 	if (pu->port != DefaultPort[pu->scheme]) {
 	    char pbuf[16];
-	    snprintf(pbuf, sizeof(pbuf), ":%d", pu->port);
-	    Strcat_charp(tmp, pbuf);
+	    char *pe = &pbuf[15];
+	    int pval = pu->port;
+	    *pe = '\0';
+	    if (pval == 0) {
+		*--pe = '0';
+	    } else {
+		while (pval > 0) {
+		    *--pe = '0' + (pval % 10);
+		    pval /= 10;
+		}
+	    }
+	    *--pe = ':';
+	    Strcat_charp(tmp, pe);
 	}
     }
     if (

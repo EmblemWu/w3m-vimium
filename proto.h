@@ -613,6 +613,7 @@ extern Anchor *registerForm(Buffer *buf, FormList *flist,
 			    struct parsed_tag *tag, int line, int pos);
 extern int onAnchor(Anchor *a, int line, int pos);
 extern Anchor *retrieveAnchor(AnchorList *al, int line, int pos);
+extern char *anchorResolvedURL(Anchor *a, Buffer *buf);
 extern Anchor *retrieveCurrentAnchor(Buffer *buf);
 extern Anchor *retrieveCurrentImg(Buffer *buf);
 extern Anchor *retrieveCurrentForm(Buffer *buf);

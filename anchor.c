@@ -49,6 +49,7 @@ putAnchor(AnchorList *al, char *url, char *target, Anchor **anchor_return,
     a->slave = FALSE;
     a->start = bp;
     a->end = bp;
+    a->resolved_url = NULL;
     al->nanchor++;
     if (anchor_return)
 	*anchor_return = a;
@@ -139,6 +140,19 @@ retrieveAnchor(AnchorList *al, int line, int pos)
 	    e = al->acache - 1;
     }
     return NULL;
+}
+
+char *
+anchorResolvedURL(Anchor *a, Buffer *buf)
+{
+    if (!a || !a->url)
+	return NULL;
+    if (a->resolved_url)
+	return a->resolved_url;
+    ParsedURL pu;
+    parseURL2(a->url, &pu, baseURL(buf));
+    a->resolved_url = parsedURL2Str(&pu)->ptr;
+    return a->resolved_url;
 }
 
 Anchor *
@@ -786,8 +800,7 @@ link_list_panel(Buffer *buf)
 	    a = &al->anchors[i];
 	    if (a->hseq < 0 || a->slave)
 		continue;
-	    parseURL2(a->url, &pu, baseURL(buf));
-	    p = parsedURL2Str(&pu)->ptr;
+	    p = anchorResolvedURL(a, buf);
 	    u = html_quote(p);
 	    if (DecodeURL)
 		p = html_quote(url_decode2(p, buf));
@@ -808,8 +821,7 @@ link_list_panel(Buffer *buf)
 	    a = &al->anchors[i];
 	    if (a->slave)
 		continue;
-	    parseURL2(a->url, &pu, baseURL(buf));
-	    p = parsedURL2Str(&pu)->ptr;
+	    p = anchorResolvedURL(a, buf);
 	    u = html_quote(p);
 	    if (DecodeURL)
 		p = html_quote(url_decode2(p, buf));

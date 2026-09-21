@@ -4730,9 +4730,7 @@ follow_pagination_link(int direction)
     }
 
     if (matched && matched->url) {
-	ParsedURL u;
-	parseURL2(matched->url, &u, baseURL(Currentbuf));
-	char *full_url = parsedURL2Str(&u)->ptr;
+	char *full_url = anchorResolvedURL(matched, Currentbuf);
 	Buffer *cur_buf = Currentbuf;
 	pushHashHist(URLHist, full_url);
 	cmd_loadURL(full_url, baseURL(Currentbuf), NO_REFERER, NULL);
@@ -7011,7 +7009,6 @@ yank_all_links(int markdown_format)
 {
     AnchorList *al;
     Anchor *a;
-    ParsedURL pu;
     Str out;
     int i, count = 0;
 
@@ -7029,8 +7026,7 @@ yank_all_links(int markdown_format)
 	if (a->hseq < 0 || a->slave || a->url == NULL || *a->url == '\0')
 	    continue;
 
-	parseURL2(a->url, &pu, baseURL(Currentbuf));
-	u_str = parsedURL2Str(&pu)->ptr;
+	u_str = anchorResolvedURL(a, Currentbuf);
 	if (u_str == NULL || *u_str == '\0')
 	    continue;
 
@@ -7176,7 +7172,6 @@ yank_link_under_cursor(int as_markdown)
     Anchor *a = NULL;
     char *url = NULL;
     char *title = NULL;
-    ParsedURL u;
     Str s;
 
     if (Currentbuf == NULL)
@@ -7187,9 +7182,7 @@ yank_link_under_cursor(int as_markdown)
 	a = retrieveCurrentImg(Currentbuf);
 
     if (a != NULL && a->url != NULL && *a->url != '\0') {
-	parseURL2(a->url, &u, baseURL(Currentbuf));
-	s = parsedURL2Str(&u);
-	url = s->ptr;
+	url = anchorResolvedURL(a, Currentbuf);
 	title = (a->title && *a->title) ? a->title : get_anchor_text(Currentbuf, a);
 	if (title == NULL || *title == '\0')
 	    title = url;
@@ -7475,7 +7468,6 @@ _nextA(int visited)
     BufferPoint *po;
     Anchor *an, *pan;
     int i, x, y, n = searchKeyNum();
-    ParsedURL url;
 
     if (Currentbuf->firstLine == NULL)
 	return;
@@ -7511,8 +7503,8 @@ _nextA(int visited)
 					po->pos);
 		hseq++;
 		if (visited == TRUE && an) {
-		    parseURL2(an->url, &url, baseURL(Currentbuf));
-		    if (getHashHist(URLHist, parsedURL2Str(&url)->ptr)) {
+		    char *res_url = anchorResolvedURL(an, Currentbuf);
+		    if (res_url && getHashHist(URLHist, res_url)) {
 			goto _end;
 		    }
 		}
@@ -7531,8 +7523,8 @@ _nextA(int visited)
 	    x = an->start.pos;
 	    y = an->start.line;
 	    if (visited == TRUE) {
-		parseURL2(an->url, &url, baseURL(Currentbuf));
-		if (getHashHist(URLHist, parsedURL2Str(&url)->ptr)) {
+		char *res_url = anchorResolvedURL(an, Currentbuf);
+		if (res_url && getHashHist(URLHist, res_url)) {
 		    goto _end;
 		}
 	    }
@@ -7559,7 +7551,6 @@ _prevA(int visited)
     BufferPoint *po;
     Anchor *an, *pan;
     int i, x, y, n = searchKeyNum();
-    ParsedURL url;
 
     if (Currentbuf->firstLine == NULL)
 	return;
@@ -7595,8 +7586,8 @@ _prevA(int visited)
 					po->pos);
 		hseq--;
 		if (visited == TRUE && an) {
-		    parseURL2(an->url, &url, baseURL(Currentbuf));
-		    if (getHashHist(URLHist, parsedURL2Str(&url)->ptr)) {
+		    char *res_url = anchorResolvedURL(an, Currentbuf);
+		    if (res_url && getHashHist(URLHist, res_url)) {
 			goto _end;
 		    }
 		}
@@ -7615,8 +7606,8 @@ _prevA(int visited)
 	    x = an->start.pos;
 	    y = an->start.line;
 	    if (visited == TRUE && an) {
-		parseURL2(an->url, &url, baseURL(Currentbuf));
-		if (getHashHist(URLHist, parsedURL2Str(&url)->ptr)) {
+		char *res_url = anchorResolvedURL(an, Currentbuf);
+		if (res_url && getHashHist(URLHist, res_url)) {
 		    goto _end;
 		}
 	    }
